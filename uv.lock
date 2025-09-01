@@ -17,7 +17,7 @@ wheels = [
 ]
 
 [[package]]
-name = "collector-crypt"
+name = "card-history"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
