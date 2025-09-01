@@ -1,5 +1,5 @@
 [project]
-name = "collector-crypt"
+name = "card_history"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
