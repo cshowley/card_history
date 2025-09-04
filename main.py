@@ -608,11 +608,11 @@ def format_full_grade_inference(
         "all_lengths": torch.tensor([all_lengths], dtype=torch.long)
     }
 
-def predict_price(model, card_id, target_grade, sales_records, card_to_idx, max_seq_len, device='cpu'):
+def predict_price(model, card_id, target_grade, sales_records, card_to_idx, max_seq_len=5, device='cpu'):
     """Predict price for a card with given sales history"""
     model.eval()
     model = model.to(device)
-    
+
     # Format input
     inference_input = format_full_grade_inference(
         card_id=card_id,
@@ -621,14 +621,19 @@ def predict_price(model, card_id, target_grade, sales_records, card_to_idx, max_
         card_to_idx=card_to_idx,
         max_seq_len=max_seq_len
     )
-    
+
     # Move to device
     inference_input = {k: v.to(device) for k, v in inference_input.items()}
-    
+
+    # Check for insufficient data
+    all_gaps = inference_input['all_gaps']
+    if torch.sum(all_gaps) == 0:
+        return "Insufficient data: Card has 1 or 0 total sales over its history"
+
     # Run inference
     with torch.no_grad():
         prediction = model(**inference_input)
-    
+
     return prediction.item()
 
 # ======================$
@@ -869,8 +874,11 @@ def main(args):
         device=args.device
     )
     
-    logger.info(f"Predicted price for sparse card {card_id}, grade 8: ${prediction:.2f}")
-    
+    try:
+        logger.info(f"Predicted price for sparse card {card_id}, grade 8: ${prediction:.2f}")
+    except ValueError:
+        logger.info(f"Insufficient data for prediction")        
+
     # Example 3: New card with no sales history
     logger.info("\nExample 3: New card with no sales history")
     new_card_id = sample_spec_id()  # Not in training data
@@ -889,7 +897,10 @@ def main(args):
         device=args.device
     )
     
-    logger.info(f"Predicted price for new card {new_card_id}, grade 7: ${prediction:.2f}")
+    try:
+        logger.info(f"Predicted price for new card {new_card_id}, grade 7: ${prediction:.2f}")
+    except ValueError:
+        logger.info(f"Insufficient data for prediction")        
     
     # Example 4: Dormant high grade
     logger.info("\nExample 4: Dormant high grade (grade 10 hasn't sold recently)")
