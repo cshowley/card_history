@@ -105,13 +105,6 @@ class FullGradeHistoryPredictor(nn.Module):
         reshaped_gaps = all_gaps.view(batch_n_grades, -1)
         reshaped_lengths = all_lengths.view(-1)
 
-        print(reshaped_prices)
-        print(reshaped_prices.shape)
-        print(reshaped_gaps)
-        print(reshaped_gaps.shape)
-        print(reshaped_lengths)
-        print(reshaped_lengths.shape)
-
         # Apply decay weights
         decay_weights = torch.exp(-0.05 * reshaped_gaps)
         gru_input = torch.stack([reshaped_prices, decay_weights], dim=-1)
@@ -790,6 +783,8 @@ def main(args):
         save_path=args.model_path
     )
     
+    print(best_model_state)
+
     # 6. Load best model for evaluation
     model.load_state_dict(best_model_state)
     
@@ -804,153 +799,153 @@ def main(args):
     
     avg_mape, grade_errors = evaluate_model(model, test_loader, device=args.device)
     
-    # 8. Demonstrate inference with different scenarios
-    logger.info("\n" + "="*50)
-    logger.info("INFERENCE DEMONSTRATIONS")
-    logger.info("="*50)
+    # # 8. Demonstrate inference with different scenarios
+    # logger.info("\n" + "="*50)
+    # logger.info("INFERENCE DEMONSTRATIONS")
+    # logger.info("="*50)
     
 
-    # Helper function to sample card_id from training data
-    ### FIX: model crashes if new card w/ no sales data is served for inference
-    def sample_spec_id():
-        sampled_id = raw_df.spec_id.sample(1).astype(float).iloc[0]        
-        return sampled_id
+    # # Helper function to sample card_id from training data
+    # ### FIX: model crashes if new card w/ no sales data is served for inference
+    # def sample_spec_id():
+    #     sampled_id = raw_df.spec_id.sample(1).astype(float).iloc[0]        
+    #     return sampled_id
 
 
-    # Example 1: Standard case with multiple grade histories
-    logger.info("\nExample 1: Standard case (multiple grade histories)")
-    card_id = sample_spec_id()  # First card in synthetic data
-    target_grade = 9
+    # # Example 1: Standard case with multiple grade histories
+    # logger.info("\nExample 1: Standard case (multiple grade histories)")
+    # card_id = sample_spec_id()  # First card in synthetic data
+    # target_grade = 9
     
-    # Get all sales for this card from raw data
-    card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
-    sales_records = [{
-        'grade': r['gradeNumber'],
-        'date': pd.to_datetime(r['date']),
-        'price': r['price']
-    } for r in card_sales]
+    # # Get all sales for this card from raw data
+    # card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
+    # sales_records = [{
+    #     'grade': r['gradeNumber'],
+    #     'date': pd.to_datetime(r['date']),
+    #     'price': r['price']
+    # } for r in card_sales]
 
-    # Predict price
-    prediction = predict_price(
-        model, 
-        card_id, 
-        target_grade, 
-        sales_records, 
-        card_to_idx,
-        max_seq_len=args.max_seq_len,
-        device=args.device
-    )
+    # # Predict price
+    # prediction = predict_price(
+    #     model, 
+    #     card_id, 
+    #     target_grade, 
+    #     sales_records, 
+    #     card_to_idx,
+    #     max_seq_len=args.max_seq_len,
+    #     device=args.device
+    # )
     
-    # Get actual recent price for comparison (if available)
-    recent_sales = [r for r in sales_records if r['grade'] == target_grade]
-    actual_price = recent_sales[-1]['price'] if recent_sales else "N/A"
+    # # Get actual recent price for comparison (if available)
+    # recent_sales = [r for r in sales_records if r['grade'] == target_grade]
+    # actual_price = recent_sales[-1]['price'] if recent_sales else "N/A"
     
-    logger.info(f"Predicted price for card {card_id}, grade {target_grade}: ${prediction:.2f}")
-    logger.info(f"Most recent actual price: {actual_price}")
+    # logger.info(f"Predicted price for card {card_id}, grade {target_grade}: ${prediction:.2f}")
+    # logger.info(f"Most recent actual price: {actual_price}")
     
-    # Example 2: Sparse data case
-    logger.info("\nExample 2: Sparse data case (infrequent sales)")
-    card_id = sample_spec_id()  # Another card
+    # # Example 2: Sparse data case
+    # logger.info("\nExample 2: Sparse data case (infrequent sales)")
+    # card_id = sample_spec_id()  # Another card
     
-    # Get sales but only keep the first and last
-    card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
-    if len(card_sales) > 2:
-        card_sales = [card_sales[0], card_sales[-1]]
+    # # Get sales but only keep the first and last
+    # card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
+    # if len(card_sales) > 2:
+    #     card_sales = [card_sales[0], card_sales[-1]]
     
-    sales_records = [{
-        'grade': r['gradeNumber'],
-        'date': pd.to_datetime(r['date']),
-        'price': r['price']
-    } for r in card_sales]
+    # sales_records = [{
+    #     'grade': r['gradeNumber'],
+    #     'date': pd.to_datetime(r['date']),
+    #     'price': r['price']
+    # } for r in card_sales]
     
-    # Predict price for grade 8
-    prediction = predict_price(
-        model, 
-        card_id, 
-        8, 
-        sales_records, 
-        card_to_idx,
-        max_seq_len=args.max_seq_len,
-        device=args.device
-    )
+    # # Predict price for grade 8
+    # prediction = predict_price(
+    #     model, 
+    #     card_id, 
+    #     8, 
+    #     sales_records, 
+    #     card_to_idx,
+    #     max_seq_len=args.max_seq_len,
+    #     device=args.device
+    # )
     
-    try:
-        logger.info(f"Predicted price for sparse card {card_id}, grade 8: ${prediction:.2f}")
-    except ValueError:
-        logger.info(f"Insufficient data for prediction")        
+    # try:
+    #     logger.info(f"Predicted price for sparse card {card_id}, grade 8: ${prediction:.2f}")
+    # except ValueError:
+    #     logger.info(f"Insufficient data for prediction")        
 
-    # Example 3: New card with no sales history
-    logger.info("\nExample 3: New card with no sales history")
-    new_card_id = sample_spec_id()  # Not in training data
+    # # Example 3: New card with no sales history
+    # logger.info("\nExample 3: New card with no sales history")
+    # new_card_id = sample_spec_id()  # Not in training data
     
-    # Empty sales history
-    sales_records = []
+    # # Empty sales history
+    # sales_records = []
     
-    # Predict price for grade 7
-    prediction = predict_price(
-        model, 
-        new_card_id, 
-        7, 
-        sales_records, 
-        card_to_idx,
-        max_seq_len=args.max_seq_len,
-        device=args.device
-    )
+    # # Predict price for grade 7
+    # prediction = predict_price(
+    #     model, 
+    #     new_card_id, 
+    #     7, 
+    #     sales_records, 
+    #     card_to_idx,
+    #     max_seq_len=args.max_seq_len,
+    #     device=args.device
+    # )
     
-    try:
-        logger.info(f"Predicted price for new card {new_card_id}, grade 7: ${prediction:.2f}")
-    except ValueError:
-        logger.info(f"Insufficient data for prediction")        
+    # try:
+    #     logger.info(f"Predicted price for new card {new_card_id}, grade 7: ${prediction:.2f}")
+    # except ValueError:
+    #     logger.info(f"Insufficient data for prediction")        
     
-    # Example 4: Dormant high grade
-    logger.info("\nExample 4: Dormant high grade (grade 10 hasn't sold recently)")
-    card_id = sample_spec_id()  # Another card
+    # # Example 4: Dormant high grade
+    # logger.info("\nExample 4: Dormant high grade (grade 10 hasn't sold recently)")
+    # card_id = sample_spec_id()  # Another card
     
-    # Get sales but remove recent grade 10 sales
-    card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
-    filtered_sales = []
-    last_grade_10_date = None
+    # # Get sales but remove recent grade 10 sales
+    # card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
+    # filtered_sales = []
+    # last_grade_10_date = None
     
-    # Find last grade 10 sale
-    for r in reversed(card_sales):
-        if r['gradeNumber'] == 10.0:
-            last_grade_10_date = pd.to_datetime(r['date'])
-            break
+    # # Find last grade 10 sale
+    # for r in reversed(card_sales):
+    #     if r['gradeNumber'] == 10.0:
+    #         last_grade_10_date = pd.to_datetime(r['date'])
+    #         break
     
-    # Keep only grade 10 sales older than 90 days
-    if last_grade_10_date:
-        cutoff_date = last_grade_10_date - datetime.timedelta(days=90)
-        for r in card_sales:
-            grade = r['gradeNumber']
-            date = pd.to_datetime(r['date'])
+    # # Keep only grade 10 sales older than 90 days
+    # if last_grade_10_date:
+    #     cutoff_date = last_grade_10_date - datetime.timedelta(days=90)
+    #     for r in card_sales:
+    #         grade = r['gradeNumber']
+    #         date = pd.to_datetime(r['date'])
             
-            if grade != 10.0 or date < cutoff_date:
-                filtered_sales.append(r)
-    else:
-        filtered_sales = card_sales
+    #         if grade != 10.0 or date < cutoff_date:
+    #             filtered_sales.append(r)
+    # else:
+    #     filtered_sales = card_sales
     
-    sales_records = [{
-        'grade': r['gradeNumber'],
-        'date': pd.to_datetime(r['date']),
-        'price': r['price']
-    } for r in filtered_sales]
+    # sales_records = [{
+    #     'grade': r['gradeNumber'],
+    #     'date': pd.to_datetime(r['date']),
+    #     'price': r['price']
+    # } for r in filtered_sales]
     
-    # Predict price for grade 10
-    prediction = predict_price(
-        model, 
-        card_id, 
-        10, 
-        sales_records, 
-        card_to_idx,
-        max_seq_len=args.max_seq_len,
-        device=args.device
-    )
+    # # Predict price for grade 10
+    # prediction = predict_price(
+    #     model, 
+    #     card_id, 
+    #     10, 
+    #     sales_records, 
+    #     card_to_idx,
+    #     max_seq_len=args.max_seq_len,
+    #     device=args.device
+    # )
     
-    logger.info(f"Predicted price for card {card_id}, grade 10 (dormant): ${prediction:.2f}")
+    # logger.info(f"Predicted price for card {card_id}, grade 10 (dormant): ${prediction:.2f}")
     
-    logger.info("\nTraining pipeline completed successfully!")
-    logger.info(f"Model saved to {args.model_path}")
-    logger.info(f"Final validation MAPE: {avg_mape:.2f}%")
+    # logger.info("\nTraining pipeline completed successfully!")
+    # logger.info(f"Model saved to {args.model_path}")
+    # logger.info(f"Final validation MAPE: {avg_mape:.2f}%")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trading Card Price Prediction System')
