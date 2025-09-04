@@ -2,6 +2,7 @@ from pymongo import MongoClient
 import pandas as pd
 import argparse
 import os
+import math
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -47,12 +48,14 @@ client.close()
 tmp = df[df['market_transaction.attributes.gradingCompany'] == 'PSA'].reset_index(drop=True)
 import matplotlib.pyplot as plt
 plt.figure()
-tmp['market_transaction.attributes.gradeNumber'] = tmp['market_transaction.attributes.gradeNumber'].astype(float)
+tmp['market_transaction.attributes.gradeNumber'] = tmp['market_transaction.attributes.gradeNumber'].apply(lambda x: math.floor(float(x)))
+save_df = pd.DataFrame()
 for grade in sorted(tmp['market_transaction.attributes.gradeNumber'].unique()):
     tmp_ = tmp[tmp['market_transaction.attributes.gradeNumber'] == grade]
     tmp_ = tmp_.sort_values(by='market_transaction.date')
     tmp_['market_transaction.date'] = pd.to_datetime(tmp_['market_transaction.date'])
     tmp_['market_transaction.price'] = tmp_['market_transaction.price'].astype(float)
+    save_df = pd.concat([save_df, tmp_], axis=0)
     plt.plot(tmp_['market_transaction.date'], tmp_['market_transaction.price'], label=grade)
     plt.legend(loc='best')
     plt.xlabel('Sales date')
@@ -61,3 +64,7 @@ for grade in sorted(tmp['market_transaction.attributes.gradeNumber'].unique()):
     plt.xticks(rotation=45)
 plt.savefig(f'{spec_id}.png')
 plt.close('all')
+
+
+save_df.to_csv(f'{spec_id}_price_history.csv', index=None)
+
