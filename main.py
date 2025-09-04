@@ -104,7 +104,14 @@ class FullGradeHistoryPredictor(nn.Module):
         reshaped_prices = all_prices.view(batch_n_grades, -1)
         reshaped_gaps = all_gaps.view(batch_n_grades, -1)
         reshaped_lengths = all_lengths.view(-1)
-        
+
+        print(reshaped_prices)
+        print(reshaped_prices.shape)
+        print(reshaped_gaps)
+        print(reshaped_gaps.shape)
+        print(reshaped_lengths)
+        print(reshaped_lengths.shape)
+
         # Apply decay weights
         decay_weights = torch.exp(-0.05 * reshaped_gaps)
         gru_input = torch.stack([reshaped_prices, decay_weights], dim=-1)
@@ -797,9 +804,17 @@ def main(args):
     logger.info("INFERENCE DEMONSTRATIONS")
     logger.info("="*50)
     
+
+    # Helper function to sample card_id from training data
+    ### FIX: model crashes if new card w/ no sales data is served for inference
+    def sample_spec_id():
+        sampled_id = raw_df.spec_id.sample(1).astype(float).iloc[0]        
+        return sampled_id
+
+
     # Example 1: Standard case with multiple grade histories
     logger.info("\nExample 1: Standard case (multiple grade histories)")
-    card_id = 1  # First card in synthetic data
+    card_id = sample_spec_id()  # First card in synthetic data
     target_grade = 9
     
     # Get all sales for this card from raw data
@@ -809,7 +824,7 @@ def main(args):
         'date': pd.to_datetime(r['date']),
         'price': r['price']
     } for r in card_sales]
-    
+
     # Predict price
     prediction = predict_price(
         model, 
@@ -830,7 +845,7 @@ def main(args):
     
     # Example 2: Sparse data case
     logger.info("\nExample 2: Sparse data case (infrequent sales)")
-    card_id = 2  # Another card
+    card_id = sample_spec_id()  # Another card
     
     # Get sales but only keep the first and last
     card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
@@ -858,7 +873,7 @@ def main(args):
     
     # Example 3: New card with no sales history
     logger.info("\nExample 3: New card with no sales history")
-    new_card_id = 9999  # Not in training data
+    new_card_id = sample_spec_id()  # Not in training data
     
     # Empty sales history
     sales_records = []
@@ -878,7 +893,7 @@ def main(args):
     
     # Example 4: Dormant high grade
     logger.info("\nExample 4: Dormant high grade (grade 10 hasn't sold recently)")
-    card_id = 3  # Another card
+    card_id = sample_spec_id()  # Another card
     
     # Get sales but remove recent grade 10 sales
     card_sales = raw_df[raw_df['spec_id'] == card_id].to_dict('records')
