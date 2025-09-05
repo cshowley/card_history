@@ -125,22 +125,26 @@ class FullGradeHistoryPredictor(nn.Module):
         decay_weights = torch.exp(-0.05 * reshaped_gaps)
         gru_input = torch.stack([reshaped_prices, decay_weights], dim=-1)
         
-        # Pack and process
-        if device == 'mps':
+        # DETERMINE DEVICE FROM INPUT TENSORS (CORRECT APPROACH)
+        device = card_ids.device
+        
+        # Handle MPS-specific requirements
+        if device.type == 'mps':
             # MPS requires lengths to be on CPU
             packed = nn.utils.rnn.pack_padded_sequence(
                 gru_input, 
-                reshaped_lengths.cpu(),  # Must be on CPU for MPS
+                reshaped_lengths.cpu(),
                 batch_first=True, 
                 enforce_sorted=False
             )
         else:
             packed = nn.utils.rnn.pack_padded_sequence(
                 gru_input, 
-                reshaped_lengths.to(device), 
+                reshaped_lengths.to(device),
                 batch_first=True, 
                 enforce_sorted=False
             )
+        
         _, h_n = self.gru(packed)
         grade_embs = h_n.squeeze(0)  # [batch*n_grades, time_hidden]
         
@@ -455,14 +459,13 @@ def train_full_grade_model(
     if device == 'auto':
         device = get_optimal_device()
     
+    # Move MPS initialization HERE (before moving model to device)
+    if device == 'mps':
+        torch.mps.empty_cache()
+        torch.mps.set_per_process_memory_fraction(0.8)
+    
     logger.info(f"Starting training on {device}...")
     model = model.to(device)
-
-    if device == 'mps':
-        # Enable Metal optimization flags
-        torch.mps.empty_cache()
-        # Set optimization level for MPS
-        torch.mps.set_per_process_memory_fraction(0.5)
 
     """Train the Full Grade History model"""
     logger.info(f"Starting training on {device}...")
@@ -563,7 +566,10 @@ def train_full_grade_model(
             break
     
     # Load the best model
-    checkpoint = torch.load(save_path, weights_only=False)
+    if device == 'mps':
+        checkpoint = torch.load(save_path, map_location='mps', weights_only=False)
+    else:
+        checkpoint = torch.load(save_path, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     
     return model.state_dict()
@@ -572,12 +578,10 @@ def evaluate_model(model, test_loader, device='auto'):
     if device == 'auto':
         device = get_optimal_device()
     
+    """Evaluate model on test set"""
     logger.info(f"Evaluating model on {device}...")
     model = model.to(device)
 
-    """Evaluate model on test set"""
-    logger.info("Evaluating model on test set...")
-    model = model.to(device)
     model.eval()
     
     total_mape = 0.0
