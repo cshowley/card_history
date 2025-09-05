@@ -42,6 +42,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Select for cuda/mps/cpu
+def get_optimal_device():
+    """Determine the best available device (MPS > CUDA > CPU)"""
+    # Check for MPS (Apple Silicon)
+    if torch.backends.mps.is_available():
+        logger.info("Apple Silicon GPU (MPS) is available and will be used")
+        return 'mps'
+    # Check for CUDA (NVIDIA)
+    elif torch.cuda.is_available():
+        logger.info("CUDA GPU is available and will be used")
+        return 'cuda'
+    # Fall back to CPU
+    else:
+        logger.info("No GPU acceleration available, using CPU")
+        return 'cpu'
+
 # ======================$
 # MODEL ARCHITECTURE
 # ======================$
@@ -110,12 +126,21 @@ class FullGradeHistoryPredictor(nn.Module):
         gru_input = torch.stack([reshaped_prices, decay_weights], dim=-1)
         
         # Pack and process
-        packed = nn.utils.rnn.pack_padded_sequence(
-            gru_input, 
-            reshaped_lengths.cpu(), 
-            batch_first=True, 
-            enforce_sorted=False
-        )
+        if device == 'mps':
+            # MPS requires lengths to be on CPU
+            packed = nn.utils.rnn.pack_padded_sequence(
+                gru_input, 
+                reshaped_lengths.cpu(),  # Must be on CPU for MPS
+                batch_first=True, 
+                enforce_sorted=False
+            )
+        else:
+            packed = nn.utils.rnn.pack_padded_sequence(
+                gru_input, 
+                reshaped_lengths.to(device), 
+                batch_first=True, 
+                enforce_sorted=False
+            )
         _, h_n = self.gru(packed)
         grade_embs = h_n.squeeze(0)  # [batch*n_grades, time_hidden]
         
@@ -423,9 +448,22 @@ def train_full_grade_model(
     val_loader,
     epochs=200,
     lr=0.001,
-    device='cuda' if torch.cuda.is_available() else 'cpu',
+    device='auto',
     save_path='card_price_model.pth'
 ):
+    # Resolve device if 'auto' is specified
+    if device == 'auto':
+        device = get_optimal_device()
+    
+    logger.info(f"Starting training on {device}...")
+    model = model.to(device)
+
+    if device == 'mps':
+        # Enable Metal optimization flags
+        torch.mps.empty_cache()
+        # Set optimization level for MPS
+        torch.mps.set_per_process_memory_fraction(0.5)
+
     """Train the Full Grade History model"""
     logger.info(f"Starting training on {device}...")
     model = model.to(device)
@@ -530,7 +568,13 @@ def train_full_grade_model(
     
     return model.state_dict()
 
-def evaluate_model(model, test_loader, device='cuda' if torch.cuda.is_available() else 'cpu'):
+def evaluate_model(model, test_loader, device='auto'):
+    if device == 'auto':
+        device = get_optimal_device()
+    
+    logger.info(f"Evaluating model on {device}...")
+    model = model.to(device)
+
     """Evaluate model on test set"""
     logger.info("Evaluating model on test set...")
     model = model.to(device)
@@ -663,7 +707,15 @@ def format_full_grade_inference(
         "all_lengths": torch.tensor([all_lengths], dtype=torch.long)
     }
 
-def predict_price(model, card_id, target_grade, sales_records, card_to_idx, max_seq_len=5, device='cpu'):
+def predict_price(model, card_id, target_grade, sales_records, card_to_idx, max_seq_len=5, device='auto'):
+    if device == 'auto':
+        device = get_optimal_device()
+    
+    # Load model with appropriate device mapping
+    if device == 'mps' and next(model.parameters()).device.type == 'cpu':
+        model = model.to('mps')
+    elif device == 'cpu' and next(model.parameters()).device.type == 'mps':
+        model = model.to('cpu')
     """Predict price for a card with given sales history"""
     model.eval()
     model = model.to(device)
@@ -834,6 +886,13 @@ def main(args):
     
     logger.info(f"Initialized model with {len(card_to_idx)} unique cards")
     
+    # Resolve device
+    if args.device == 'auto':
+        device = get_optimal_device()
+    else:
+        device = args.device
+        logger.info(f"Using explicitly specified device: {device}")
+
     # 5. Train model
     best_model_state = train_full_grade_model(
         model,
@@ -841,7 +900,7 @@ def main(args):
         val_loader,
         epochs=args.epochs,
         lr=args.lr,
-        device=args.device,
+        device=device,
         save_path=args.model_path
     )
 
@@ -1034,9 +1093,9 @@ if __name__ == "__main__":
                         help='Batch size for training')
     parser.add_argument('--lr', type=float, default=0.001, 
                         help='Learning rate')
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
-                        help='Device to use for training (cuda/cpu)')
-    
+    parser.add_argument('--device', type=str, default='auto',
+                        help='Device to use for training (mps/cuda/cpu). Use "auto" for automatic detection.')
+
     # Output arguments
     parser.add_argument('--model-path', type=str, default='card_price_model.pth',
                         help='Path to save the trained model')
