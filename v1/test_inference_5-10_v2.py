@@ -3,17 +3,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import pandas as pd
+
 
 class FullGradeHistoryPredictor(nn.Module):
     """Model that uses ALL grade histories to predict a single target grade"""
     
-    def __init__(self, n_cards, card_embed_dim=64, time_hidden=128, n_grades=11):
+    def __init__(self, n_cards, card_embed_dim=64, time_hidden=128, n_grades=6):
         """
         Args:
             n_cards: Total number of unique cards
             card_embed_dim: Dimension of card identity embeddings
             time_hidden: Hidden size for temporal processing
-            n_grades: Number of possible grades (0-10 = 11)
+            n_grades: Number of possible grades (0-10 = 6)
         """
         super().__init__()
         self.n_grades = n_grades
@@ -126,7 +128,7 @@ def format_full_grade_inference(
     sales_records,
     card_to_idx,
     max_seq_len,
-    n_grades=11
+    n_grades=6
 ):
     """
     Converts raw sales records to full grade history format
@@ -137,7 +139,7 @@ def format_full_grade_inference(
         sales_records: List of all sales for this card (any grade)
         card_to_idx: Card ID mapping
         max_seq_len: Maximum history length
-        n_grades: Number of possible grades (0-10 = 11)
+        n_grades: Number of possible grades (0-10 = 6)
     
     Returns:
         Dictionary of tensors for model inference
@@ -206,7 +208,7 @@ def format_full_grade_inference(
 
 ## load model
 
-checkpoint = torch.load('card_price_model.pth', weights_only=False)
+checkpoint = torch.load('card_price_model_5-10.pth', weights_only=False)
 # Extract the correct time_hidden value from the GRU weights
 # For a GRU: weight_hh_l0 shape is [3*hidden_size, hidden_size]
 # So hidden_size = weight_hh_l0.shape[1]
@@ -219,7 +221,7 @@ model = FullGradeHistoryPredictor(
     n_cards=len(checkpoint['card_to_idx']) + 2,  # Must match training
     card_embed_dim=embed_dim,                    # Extracted from checkpoint
     time_hidden=hidden_size,                     # Extracted from checkpoint (128)
-    n_grades=11
+    n_grades=6
 )
 
 # Now load the weights (this will work)
@@ -228,18 +230,17 @@ model.eval()
 # Optional: Extract other useful metadata
 card_to_idx = checkpoint['card_to_idx']
 
-raw_df = pd.read_csv('training_data.csv')
-card_id = 
-target_grade = 
+raw_df = pd.read_csv('full_training_data_grades_5-10.csv')
+card_ids = [3700060, 544027, 9656727, 7869313, 9603030]
+card_id = 544028
+grade = [i for i in range(0,6)]
 
 tmp = raw_df[raw_df['spec_id'] == card_id]
 tmp['date'] = pd.to_datetime(tmp['date'])
 tmp = tmp.sort_values(by='date')
-for i in range(16,0,-1):
-    tmp_ = tmp.iloc[:-1*i]
-    target_grade = tmp_.gradeNumber.iloc[-1]
-    target_price = tmp_.price.iloc[-1]
-    card_sales = tmp_.to_dict('records')
+for target_grade in grade:
+
+    card_sales = tmp.to_dict('records')
     sales_records = [{
         'grade': r['gradeNumber'],
         'date': pd.to_datetime(r['date']),
@@ -256,4 +257,5 @@ for i in range(16,0,-1):
         max_seq_len=8,
         device='cpu'
     )
-    print(abs(1-prediction/target_price))
+    print(f'Grade {target_grade+5} prediction: {prediction}')
+print(card_id)
