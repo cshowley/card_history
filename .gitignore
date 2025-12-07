@@ -4,6 +4,10 @@
 # Ignore virtual environment
 .venv/
 
+model/data/*
+model/results/*
+model/configs/*
+model/__pycache__
 # Ignore all csv files
 *.csv
 
