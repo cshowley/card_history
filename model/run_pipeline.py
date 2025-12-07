@@ -2,6 +2,7 @@ import subprocess
 import sys
 import time
 
+
 def run_command(command):
     print(f"Running: {command}")
     start = time.time()

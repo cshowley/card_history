@@ -26,10 +26,8 @@ def run_search(gpu_id, config_path):
     data_dir = "model/data" 
     
     gpu_idx = int(gpu_id)
-    # Set process-wide current device so XGBoost sees the same device as the data.
     cp.cuda.Device(gpu_idx).use()
 
-    # Ensure training and validation data reside on the same GPU as the model.
     X_train, y_train, X_val, y_val = load_data(data_dir, gpu_idx)
     
     best_score = float('inf')
@@ -50,7 +48,6 @@ def run_search(gpu_id, config_path):
             model.set_params(**g)
             model.fit(X_train, y_train)
             y_val_pred = model.predict(X_val)
-            # sklearn metrics expect NumPy arrays; convert explicitly from CuPy.
             mape = mean_absolute_percentage_error(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
             
             if mape < best_score:

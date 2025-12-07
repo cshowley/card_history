@@ -1,11 +1,18 @@
-import pandas as pd
-import numpy as np
+import glob
 import json
 import os
-import glob
-from xgboost import XGBRegressor
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_absolute_percentage_error,
+    mean_squared_error,
+    r2_score,
+)
+from xgboost import XGBRegressor
+
 
 def load_data(data_dir):
     print(f"Loading data from {data_dir}...")
@@ -85,9 +92,6 @@ def main():
     except Exception as e:
         print(f"Could not calc simple percent error validation: {e}")
 
-    # Percent error (signed, not absolute) - Notebook said "Percent error (signed, not absolute)" 
-    # but code was: percent_error = (np.abs(y_test_pred - y_test.values) / y_test.values) * 100
-    # That IS absolute. The comment said 'signed' but code used np.abs. I will follow the code.
     percent_error = (np.abs(y_test_pred - y_test.values) / y_test.values) * 100
     percent_error_series = pd.Series(percent_error, name='percent_error')
     

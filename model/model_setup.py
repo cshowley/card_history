@@ -1,10 +1,11 @@
-import pandas as pd
-import numpy as np
 import json
 import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import ParameterGrid
 
 FEATURES_PREPPED_FILE = "features_prepped.csv"
@@ -78,6 +79,7 @@ def load_and_prep_data():
 
 def split_grid_and_run_workers():
     full_grid = list(ParameterGrid(PARAM_GRID))
+    np.random.shuffle(full_grid)
     total_params = len(full_grid)
     print(f"Total parameter combinations: {total_params}")
     
