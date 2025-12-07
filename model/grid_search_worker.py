@@ -1,17 +1,22 @@
 import argparse
 import json
 import os
+
+import cupy as cp
 import pandas as pd
+from sklearn.metrics import mean_absolute_percentage_error
 from tqdm import tqdm
 from xgboost import XGBRegressor
-from sklearn.metrics import mean_absolute_percentage_error
 
-def load_data(data_dir):
-    print(f"Loading data from {data_dir}...")
-    X_train = pd.read_pickle(os.path.join(data_dir, "X_train.pkl"))
-    y_train = pd.read_pickle(os.path.join(data_dir, "y_train.pkl"))
-    X_val = pd.read_pickle(os.path.join(data_dir, "X_val.pkl"))
-    y_val = pd.read_pickle(os.path.join(data_dir, "y_val.pkl"))
+
+def load_data(data_dir, gpu_id: int):
+    """Load pickled pandas data and move it onto the target GPU."""
+    print(f"Loading data from {data_dir} on GPU {gpu_id}...")
+    with cp.cuda.Device(gpu_id):
+        X_train = cp.asarray(pd.read_pickle(os.path.join(data_dir, "X_train.pkl")).to_numpy())
+        y_train = cp.asarray(pd.read_pickle(os.path.join(data_dir, "y_train.pkl")).to_numpy()).ravel()
+        X_val = cp.asarray(pd.read_pickle(os.path.join(data_dir, "X_val.pkl")).to_numpy())
+        y_val = cp.asarray(pd.read_pickle(os.path.join(data_dir, "y_val.pkl")).to_numpy()).ravel()
     return X_train, y_train, X_val, y_val
 
 def run_search(gpu_id, config_path):
@@ -20,7 +25,12 @@ def run_search(gpu_id, config_path):
 
     data_dir = "model/data" 
     
-    X_train, y_train, X_val, y_val = load_data(data_dir)
+    gpu_idx = int(gpu_id)
+    # Set process-wide current device so XGBoost sees the same device as the data.
+    cp.cuda.Device(gpu_idx).use()
+
+    # Ensure training and validation data reside on the same GPU as the model.
+    X_train, y_train, X_val, y_val = load_data(data_dir, gpu_idx)
     
     best_score = float('inf')
     best_grid = {}
@@ -31,7 +41,7 @@ def run_search(gpu_id, config_path):
 
     print(f"Worker {gpu_id}: Starting grid search with {len(param_grid)} combinations.")
     
-    device_arg = f"cuda:{gpu_id}"
+    device_arg = f"cuda:{gpu_idx}"
     
     model = XGBRegressor(device=device_arg)
     
@@ -40,7 +50,8 @@ def run_search(gpu_id, config_path):
             model.set_params(**g)
             model.fit(X_train, y_train)
             y_val_pred = model.predict(X_val)
-            mape = mean_absolute_percentage_error(y_val, y_val_pred)
+            # sklearn metrics expect NumPy arrays; convert explicitly from CuPy.
+            mape = mean_absolute_percentage_error(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
             
             if mape < best_score:
                 best_score = mape
