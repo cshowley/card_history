@@ -34,10 +34,10 @@ df = df[['CATEGORY','YEAR','SET_NAME','NAME','PARALLEL','CARD_NUMBER']]
 
 categorical_cols = ['CATEGORY','SET_NAME','PARALLEL']
 
-categorical_pipe = Pipeline(['ohe', OneHotEncoder])
+categorical_pipe = Pipeline([('ohe', OneHotEncoder)])
 
 numerical_cols = ['YEAR']
-numerical_pipe = Pipeline(['scale', StandardScaler])
+numerical_pipe = Pipeline([('scale', StandardScaler)])
 
 embed_model = SentenceTransformer(
     "Qwen/Qwen3-Embedding-0.6B",
@@ -48,17 +48,10 @@ def embed_text(text):
 	return embed_model.encode(text, prompt='Instruct: Given a search query, retrieve relevant passages that answer the query\nQuery:')
 
 embedding_cols = ['NAME']
-embedding_pipe = Pipeline(['embed', embed_text])
+embedding_pipe = Pipeline([('embed', FunctionTransformer(embed_text))])
 
 hashing_cols = ['CARD_NUMBER']
-
-fh = FeatureHasher(n_features=2**16, input_type="string")
-X = fh.transform([
-    ["red"],      # sample 1 has token "red"
-    ["blue"],     # sample 2 has token "blue"
-    ["red"],      # sample 3 has token "red"
-])
-hashing_pipe = Pipeline()
+hashing_pipe = Pipeline([('hasher', FeatureHasher(n_features=2**16, input_type="string"))])
 
 preprocess = ColumnTransformer(
 	[
