@@ -4,6 +4,9 @@
 .env
 *.pth
 *.log
+*.pt
+*.npy
+*.pkl
 
 # Python-generated files
 __pycache__/
