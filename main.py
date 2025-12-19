@@ -169,6 +169,8 @@ def s2_process_grade(val):
 
 def s2_group_currencies(val):
     s = str(val).strip()
+    if not s:
+        return "Unknown"
     if s.startswith("$") or s[0].isdigit():
         return "$ (No Country Code)"
     return s
@@ -763,12 +765,17 @@ def run_step_3():
     enc.eval()
     final_embs = []
     final_keys = []
-    standard_grades = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0]
+    # Generate both whole grades and half-grade variants (e.g., 9.0 with half=0 AND 9.0 with half=1 for 9.5)
+    grade_half_pairs = [
+        (g, h)
+        for g in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0]
+        for h in [0.0, 1.0]
+    ]
 
     with torch.no_grad():
-        for g in standard_grades:
+        for g, h in grade_half_pairs:
             n = len(X_all)
-            g_vec = s3_normalize_grade(float(g), 1.0 if g % 1 else 0.0)
+            g_vec = s3_normalize_grade(float(g), h)
             X_g = np.tile(g_vec, (n, 1))
 
             for i in range(0, n, S3_EMBED_BATCH_SIZE):
@@ -783,7 +790,7 @@ def run_step_3():
                     {
                         "universal_gemrate_id": str(r["GEMRATE_ID"]),
                         "grade": g,
-                        "half_grade": 1.0 if g % 1 else 0.0,
+                        "half_grade": h,
                     }
                 )
 
