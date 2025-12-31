@@ -16,6 +16,9 @@ model/__pycache__
 # Ignore all csv files
 *.csv
 
+*.npy
+*.pt
+
 # Ignore .expert files
 /.expert
 
