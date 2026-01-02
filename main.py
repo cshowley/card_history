@@ -26,10 +26,10 @@ load_dotenv()
 # ==============================================================================
 
 # Pipeline Switches
-RUN_STEP_1_DOWNLOAD = False
-RUN_STEP_2_FEATURE_PREP = False
-RUN_STEP_3_TRAIN_EMBEDDING = False
-RUN_STEP_4_MERGE_PREDICTIONS = False
+RUN_STEP_1_DOWNLOAD = True
+RUN_STEP_2_FEATURE_PREP = True
+RUN_STEP_3_TRAIN_EMBEDDING = True
+RUN_STEP_4_MERGE_PREDICTIONS = True
 
 # Part 1: Download Sales Config
 S1_MONGO_URL = os.getenv("MONGO_URL") or os.getenv("MONGO_URI")
@@ -143,6 +143,7 @@ def run_step_1():
                 "gemrate_data.universal_gemrate_id": {"$exists": True, "$ne": ""},
                 "api_response.soldDate": {"$exists": True},
                 "api_response.purchasePrice": {"$exists": True},
+                "api_response.auctionType": {"$in": ["WEEKLY", "PREMIER"]},
             }
         },
         {
@@ -414,7 +415,6 @@ def s2_load_and_clean_ebay(filepath):
         lambda x: pd.Series(s2_process_grade(x))
     )
 
-    # Price cleaning (filter USD only)
     currency_groups = (
         df["item_data.price"].astype(str).str.split().str[0].apply(s2_group_currencies)
     )
@@ -431,7 +431,7 @@ def s2_load_and_clean_ebay(filepath):
     df = df[df["number_of_bids"] >= S2_NUMBER_OF_BIDS_FILTER]
 
     df["grading_company"] = df["grading_company"].fillna("Unknown")
-    df["seller_name"] = df["item_data.seller_name"].fillna("")
+    df["seller_name"] = df["item_data.seller_name"].fillna("ebay_unknown")
     df["source"] = "ebay"
 
     print(f"  → eBay cleaned: {len(df)} rows")
@@ -449,10 +449,8 @@ def s2_load_and_clean_pwcc(filepath):
     if df.empty:
         return df
 
-    # Handle None values in date
     df["api_response.soldDate"] = df["api_response.soldDate"].replace({None: pd.NaT})
     df = df.dropna(subset=["api_response.soldDate"])
-    # Strip timezone abbreviation (PDT, PST, etc.)
     df["api_response.soldDate"] = (
         df["api_response.soldDate"]
         .astype(str)
@@ -470,15 +468,18 @@ def s2_load_and_clean_pwcc(filepath):
         lambda x: pd.Series(s2_process_grade(x))
     )
 
-    # Price (PWCC is already USD numeric)
     df["price"] = pd.to_numeric(df["api_response.purchasePrice"], errors="coerce")
     df = df.dropna(subset=["price"])
     df["price"] = np.log(df["price"].clip(lower=0.01))
 
-    df["number_of_bids"] = 0  # PWCC doesn't have bid count
     df["grading_company"] = df["api_response.gradingService"].fillna("Unknown")
     df["seller_name"] = "fanatics"
-    df["source"] = "fanatics"
+    conditions = [
+        df["api_response.auctionType"] == "WEEKLY",
+        df["api_response.auctionType"] == "PREMIER",
+    ]
+    choices = ["fanatics_weekly", "fanatics_premier"]
+    df["source"] = np.select(conditions, choices, default="fanatics_unknown")
 
     print(f"  → PWCC cleaned: {len(df)} rows")
     return df
