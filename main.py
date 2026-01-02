@@ -27,17 +27,19 @@ load_dotenv()
 # ==============================================================================
 
 # Pipeline Switches
-RUN_STEP_1_DOWNLOAD = True
-RUN_STEP_2_FEATURE_PREP = True
-RUN_STEP_3_TRAIN_EMBEDDING = True
-RUN_STEP_4_MERGE_PREDICTIONS = True
+RUN_STEP_1_DOWNLOAD = False
+RUN_STEP_2_FEATURE_PREP = False
+RUN_STEP_3_TRAIN_EMBEDDING = False
+RUN_STEP_4_MERGE_PREDICTIONS = False
 
 # Part 1: Download Sales Config
-S1_MONGO_URL = os.getenv("MONGO_URL")
+S1_MONGO_URL = os.getenv("MONGO_URL") or os.getenv("MONGO_URI")
 S1_DB_NAME = "gemrate"
-S1_MARKET_INFO_COLLECTION = "ebay_graded_items"
+S1_EBAY_COLLECTION = "ebay_graded_items"
+S1_PWCC_COLLECTION = "pwcc_graded_items"
 S1_INDEX_API_URL = "https://price.collectorcrypt.com/api/indexes/modern"
-S1_MARKET_FILE = "market.csv"
+S1_EBAY_MARKET_FILE = "market_ebay.csv"
+S1_PWCC_MARKET_FILE = "market_pwcc.csv"
 S1_INDEX_FILE = "index.csv"
 
 # Part 2: Feature Prep Config
@@ -62,6 +64,7 @@ S3_FINETUNE_BATCH_SIZE = 512
 S3_FINETUNE_LR = 5e-4
 S3_FINETUNE_TAU = 0.07
 S3_FINETUNE_VAL_SPLIT = 0.1
+S3_FINETUNE_PATIENCE = 5
 S3_EMBED_BATCH_SIZE = 4096
 S3_CARD_COLLECTION = "gemrate_pokemon_cards"
 S3_EMBEDDING_KEYS_FILE = "embedding_keys.csv"
@@ -77,6 +80,7 @@ S4_K_CANDIDATES = 50
 # PART 1: DOWNLOAD SALES FUNCTIONS
 # ==============================================================================
 
+
 def s1_fetch_index_data(url):
     response = requests.get(url)
     response.raise_for_status()
@@ -91,6 +95,7 @@ def s1_fetch_index_data(url):
 
     return index_df
 
+
 def run_step_1():
     print("Starting Step 1: Download Sales...")
     if not S1_MONGO_URL:
@@ -98,48 +103,78 @@ def run_step_1():
 
     client = MongoClient(S1_MONGO_URL)
     db = client[S1_DB_NAME]
-    collection = db[S1_MARKET_INFO_COLLECTION]
 
-    pipeline = [
+    # Download eBay data
+    print("Downloading eBay sales...")
+    ebay_collection = db[S1_EBAY_COLLECTION]
+    ebay_pipeline = [
         {
             "$match": {
-                "gemrate_data.universal_gemrate_id": {"$exists": True},
-                "gemrate_hybrid_data.specid": {"$exists": True},
-                "item_data.format": "auction",
-                "gemrate_hybrid_data": {"$exists": True},
-                "item_data": {"$exists": True},
-                "gemrate_data": {"$exists": True},
+                "gemrate_data.universal_gemrate_id": {"$exists": True, "$ne": ""},
+                "item_data.date": {"$exists": True},
+                "item_data.price": {"$exists": True},
             }
         },
         {
             "$project": {
                 "gemrate_data.universal_gemrate_id": 1,
-                "gemrate_hybrid_data.specid": 1,
                 "item_data.date": 1,
                 "grading_company": 1,
                 "gemrate_data.grade": 1,
                 "item_data.price": 1,
                 "item_data.number_of_bids": 1,
                 "item_data.seller_name": 1,
-                "item_data.best_offer_accepted": 1,
                 "_id": 1,
             }
         },
     ]
+    ebay_results = ebay_collection.aggregate(
+        ebay_pipeline, maxTimeMS=6000000, allowDiskUse=True
+    )
+    ebay_df = pd.json_normalize(list(ebay_results))
+    print(f"  → eBay rows loaded: {len(ebay_df)}")
+    ebay_df.to_csv(S1_EBAY_MARKET_FILE, index=False)
 
-    results = collection.aggregate(pipeline, maxTimeMS=6000000, allowDiskUse=True)
-    df = pd.DataFrame(list(results))
-    df = pd.json_normalize(df.to_dict("records"))
-    print(f"Processing complete. Rows loaded: {len(df)}")
-    df.to_csv(S1_MARKET_FILE, index=False)
+    # Download PWCC/Fanatics data
+    print("Downloading PWCC/Fanatics sales...")
+    pwcc_collection = db[S1_PWCC_COLLECTION]
+    pwcc_pipeline = [
+        {
+            "$match": {
+                "gemrate_data.universal_gemrate_id": {"$exists": True, "$ne": ""},
+                "api_response.soldDate": {"$exists": True},
+                "api_response.purchasePrice": {"$exists": True},
+            }
+        },
+        {
+            "$project": {
+                "gemrate_data.universal_gemrate_id": 1,
+                "api_response.soldDate": 1,
+                "api_response.purchasePrice": 1,
+                "api_response.auctionType": 1,
+                "api_response.gradingService": 1,
+                "gemrate_data.grade": 1,
+                "_id": 1,
+            }
+        },
+    ]
+    pwcc_results = pwcc_collection.aggregate(
+        pwcc_pipeline, maxTimeMS=6000000, allowDiskUse=True
+    )
+    pwcc_df = pd.json_normalize(list(pwcc_results))
+    print(f"  → PWCC rows loaded: {len(pwcc_df)}")
+    pwcc_df.to_csv(S1_PWCC_MARKET_FILE, index=False)
 
+    # Download index data
     index_df = s1_fetch_index_data(S1_INDEX_API_URL)
     index_df.to_csv(S1_INDEX_FILE, index=False)
     print("Step 1 Complete.")
 
+
 # ==============================================================================
 # PART 2: FEATURE PREP FUNCTIONS
 # ==============================================================================
+
 
 def s2_clean_grade(val):
     s = str(val).lower().strip().replace("g", "").replace("_", ".")
@@ -160,12 +195,14 @@ def s2_clean_grade(val):
             return np.nan
     return np.nan
 
+
 def s2_process_grade(val):
     if pd.isna(val):
         return np.nan, np.nan
     floor_val = np.floor(val)
     half_val = 1.0 if (val - floor_val) > 0 else 0.0
     return floor_val, half_val
+
 
 def s2_group_currencies(val):
     s = str(val).strip()
@@ -175,18 +212,22 @@ def s2_group_currencies(val):
         return "$ (No Country Code)"
     return s
 
+
 def s2_calculate_seller_popularity(df):
     print("Calculating seller popularity (expanding window)...")
     df = df.sort_values("date").copy()
-    df["seller_cum_count"] = df.groupby("item_data.seller_name").cumcount() + 1
+    df["seller_cum_count"] = df.groupby("seller_name").cumcount() + 1
     df["global_cum_count"] = np.arange(1, len(df) + 1)
     df["seller_popularity"] = df["seller_cum_count"] / df["global_cum_count"]
     df.drop(columns=["seller_cum_count", "global_cum_count"], inplace=True)
     return df
 
+
 def s2_create_previous_sale_features(df, n_sales_back):
     print(f"Generating {n_sales_back} lag features...")
-    df = df.sort_values(["universal_gemrate_id", "grade", "date"]).reset_index(drop=True)
+    df = df.sort_values(["universal_gemrate_id", "grade", "date"]).reset_index(
+        drop=True
+    )
 
     feature_cols = [
         "price",
@@ -211,9 +252,12 @@ def s2_create_previous_sale_features(df, n_sales_back):
 
     return df, new_columns
 
+
 def s2_create_lookback_features(df, weeks_back_list):
     print("Generating lookback features...")
-    df = df.sort_values(["universal_gemrate_id", "grade", "date"]).reset_index(drop=True)
+    df = df.sort_values(["universal_gemrate_id", "grade", "date"]).reset_index(
+        drop=True
+    )
     df["week_start"] = df["date"].dt.to_period("W").dt.start_time
 
     agg_cols = [
@@ -257,9 +301,12 @@ def s2_create_lookback_features(df, weeks_back_list):
 
     return result_df, new_columns
 
+
 def s2_create_adjacent_grade_features(df, n_sales_back):
     print("Generating adjacent grade features...")
-    df = df.sort_values(["universal_gemrate_id", "grade", "date"]).reset_index(drop=True)
+    df = df.sort_values(["universal_gemrate_id", "grade", "date"]).reset_index(
+        drop=True
+    )
 
     feature_cols = [
         "price",
@@ -331,6 +378,7 @@ def s2_create_adjacent_grade_features(df, n_sales_back):
 
     return df, new_columns
 
+
 def s2_load_and_join_index_data(df, filepath):
     if not os.path.exists(filepath):
         print(f"Warning: {filepath} not found. Skipping index data.")
@@ -349,20 +397,17 @@ def s2_load_and_join_index_data(df, filepath):
     df = df.merge(idx_df, on="date", how="left")
     return df
 
-def run_step_2():
-    print("Starting Step 2: Feature Prep...")
-    if not os.path.exists(S1_MARKET_FILE):
-        raise FileNotFoundError(f"{S1_MARKET_FILE} not found. Run Step 1 first.")
 
-    print("Loading market data...")
-    df = pd.read_csv(S1_MARKET_FILE)
+def s2_load_and_clean_ebay(filepath):
+    """Load and clean eBay data."""
+    print(f"Loading eBay data from {filepath}...")
+    df = pd.read_csv(filepath)
 
     df["date"] = pd.to_datetime(df["item_data.date"], errors="coerce")
-    df.dropna(subset=["date"], inplace=True)
+    df = df.dropna(subset=["date"])
 
-    df["universal_gemrate_id"] = df["gemrate_data.universal_gemrate_id"]
-    df["spec_id"] = df["gemrate_hybrid_data.specid"]
-    df = df.dropna(subset=["universal_gemrate_id", "spec_id"])
+    df["universal_gemrate_id"] = df["gemrate_data.universal_gemrate_id"].astype(str)
+    df = df[df["universal_gemrate_id"].notna() & (df["universal_gemrate_id"] != "")]
 
     df["grade"] = df["gemrate_data.grade"].apply(s2_clean_grade)
     df = df.dropna(subset=["grade"])
@@ -370,38 +415,132 @@ def run_step_2():
         lambda x: pd.Series(s2_process_grade(x))
     )
 
-    currency_groups = df["item_data.price"].str.split().str[0].apply(s2_group_currencies)
+    # Price cleaning (filter USD only)
+    currency_groups = (
+        df["item_data.price"].astype(str).str.split().str[0].apply(s2_group_currencies)
+    )
     df = df.loc[currency_groups.isin(["$ (No Country Code)", "US"])]
     df["price"] = np.log(
         df["item_data.price"]
         .astype(str)
         .str.replace(r"\D+", "", regex=True)
         .astype(float)
+        .clip(lower=0.01)
     )
 
     df["number_of_bids"] = df["item_data.number_of_bids"].fillna(0).astype(int)
     df = df[df["number_of_bids"] >= S2_NUMBER_OF_BIDS_FILTER]
 
     df["grading_company"] = df["grading_company"].fillna("Unknown")
-    dummies = pd.get_dummies(df["grading_company"], prefix="grade_co", dtype=int)
-    df = pd.concat([df, dummies], axis=1)
+    df["seller_name"] = df["item_data.seller_name"].fillna("")
+    df["source"] = "ebay"
 
-    columns_to_keep = [
+    print(f"  → eBay cleaned: {len(df)} rows")
+    return df
+
+
+def s2_load_and_clean_pwcc(filepath):
+    """Load and clean PWCC/Fanatics data."""
+    print(f"Loading PWCC data from {filepath}...")
+    if not os.path.exists(filepath):
+        print(f"  → {filepath} not found, skipping PWCC")
+        return pd.DataFrame()
+
+    df = pd.read_csv(filepath)
+    if df.empty:
+        return df
+
+    # Handle None values in date
+    df["api_response.soldDate"] = df["api_response.soldDate"].replace({None: pd.NaT})
+    df = df.dropna(subset=["api_response.soldDate"])
+    # Strip timezone abbreviation (PDT, PST, etc.)
+    df["api_response.soldDate"] = (
+        df["api_response.soldDate"]
+        .astype(str)
+        .str.replace(r" [A-Z]{3,4}$", "", regex=True)
+    )
+    df["date"] = pd.to_datetime(df["api_response.soldDate"], errors="coerce")
+    df = df.dropna(subset=["date"])
+
+    df["universal_gemrate_id"] = df["gemrate_data.universal_gemrate_id"].astype(str)
+    df = df[df["universal_gemrate_id"].notna() & (df["universal_gemrate_id"] != "")]
+
+    df["grade"] = df["gemrate_data.grade"].apply(s2_clean_grade)
+    df = df.dropna(subset=["grade"])
+    df[["grade", "half_grade"]] = df["grade"].apply(
+        lambda x: pd.Series(s2_process_grade(x))
+    )
+
+    # Price (PWCC is already USD numeric)
+    df["price"] = pd.to_numeric(df["api_response.purchasePrice"], errors="coerce")
+    df = df.dropna(subset=["price"])
+    df["price"] = np.log(df["price"].clip(lower=0.01))
+
+    df["number_of_bids"] = 0  # PWCC doesn't have bid count
+    df["grading_company"] = df["api_response.gradingService"].fillna("Unknown")
+    df["seller_name"] = "fanatics"
+    df["source"] = "fanatics"
+
+    print(f"  → PWCC cleaned: {len(df)} rows")
+    return df
+
+
+def run_step_2():
+    print("Starting Step 2: Feature Prep...")
+
+    # Load both data sources
+    ebay_df = s2_load_and_clean_ebay(S1_EBAY_MARKET_FILE)
+    pwcc_df = s2_load_and_clean_pwcc(S1_PWCC_MARKET_FILE)
+
+    # Common columns to keep for merge
+    common_cols = [
         "universal_gemrate_id",
-        "spec_id",
         "date",
         "price",
         "grade",
         "half_grade",
         "number_of_bids",
+        "grading_company",
+        "seller_name",
+        "source",
+    ]
+
+    ebay_subset = ebay_df[[c for c in common_cols if c in ebay_df.columns]].copy()
+    pwcc_subset = pwcc_df[[c for c in common_cols if c in pwcc_df.columns]].copy()
+
+    # Merge sources
+    print("Merging eBay and PWCC data...")
+    df = pd.concat([ebay_subset, pwcc_subset], ignore_index=True)
+    print(f"  → Total merged: {len(df)} rows")
+    print(f"  → Source distribution: {df['source'].value_counts().to_dict()}")
+
+    # Add source one-hot encoding
+    df["source_ebay"] = (df["source"] == "ebay").astype(int)
+    df["source_fanatics"] = (df["source"] == "fanatics").astype(int)
+
+    # Create grading company dummies
+    dummies = pd.get_dummies(df["grading_company"], prefix="grade_co", dtype=int)
+    df = pd.concat([df, dummies], axis=1)
+
+    # Calculate seller popularity (across all sources)
+    df = s2_calculate_seller_popularity(df)
+
+    # Columns to keep
+    columns_to_keep = [
+        "universal_gemrate_id",
+        "date",
+        "price",
+        "grade",
+        "half_grade",
+        "number_of_bids",
+        "source_ebay",
+        "source_fanatics",
+        "seller_popularity",
     ]
     columns_to_keep.extend(dummies.columns.tolist())
-
-    df = s2_calculate_seller_popularity(df)
-    columns_to_keep.append("seller_popularity")
-
     df = df[columns_to_keep].copy()
 
+    # Feature engineering (grouped by universal_gemrate_id + grade across all sources)
     df, prev_cols = s2_create_previous_sale_features(df, S2_N_SALES_BACK)
     df, lookback_cols = s2_create_lookback_features(df, S2_WEEKS_BACK_LIST)
     df, adj_cols = s2_create_adjacent_grade_features(df, S2_N_SALES_BACK)
@@ -412,22 +551,18 @@ def run_step_2():
     df.to_csv(S2_FEATURES_PREPPED_FILE, index=False)
     print("Step 2 Complete.")
 
+
 # ==============================================================================
 # PART 3: TRAIN EMBEDDING FUNCTIONS & CLASSES
 # ==============================================================================
 
-def s3_load_cards_from_mongo():
-    print("Connecting to MongoDB...")
-    if "MONGO_URL" not in os.environ:
-        print("Skipping Mongo load (MONGO_URL not set).")
-        return pd.DataFrame()
 
-    client = MongoClient(os.environ["MONGO_URL"])
-    db = client[S1_DB_NAME]
-    print("Loading cards...")
-    cards_collection = db[S3_CARD_COLLECTION]
-    cards = pd.json_normalize(list(cards_collection.aggregate([])))
+# File to load combined cards from (run explore_fill_missing_cards.py first)
+S3_ALL_CARDS_FILE = "all_cards_for_embedding.csv"
 
+
+def s3_load_cards_from_file_or_mongo():
+    """Load cards from pre-built CSV (preferred) or fallback to MongoDB."""
     GEMRATE_ID_COL = "GEMRATE_ID"
     METADATA_COLS = [
         GEMRATE_ID_COL,
@@ -439,6 +574,31 @@ def s3_load_cards_from_mongo():
         "CARD_NUMBER",
     ]
 
+    # Prefer loading from combined file (includes cards from sales data)
+    if os.path.exists(S3_ALL_CARDS_FILE):
+        print(f"Loading cards from {S3_ALL_CARDS_FILE}...")
+        cards = pd.read_csv(S3_ALL_CARDS_FILE)
+        cards[GEMRATE_ID_COL] = cards[GEMRATE_ID_COL].astype(str)
+        cards["YEAR"] = pd.to_numeric(cards["YEAR"], errors="coerce")
+        cards = cards.drop_duplicates(subset=[GEMRATE_ID_COL])
+        print(f"  → Loaded {len(cards)} cards from file")
+        return cards
+
+    # Fallback to MongoDB
+    print(f"Warning: {S3_ALL_CARDS_FILE} not found, loading from MongoDB...")
+    print("  → Run explore_fill_missing_cards.py to build complete card list")
+
+    mongo_url = os.getenv("MONGO_URL") or os.getenv("MONGO_URI")
+    if not mongo_url:
+        print("Skipping Mongo load (MONGO_URL not set).")
+        return pd.DataFrame()
+
+    client = MongoClient(mongo_url)
+    db = client[S1_DB_NAME]
+    print("Loading cards from gemrate_pokemon_cards...")
+    cards_collection = db[S3_CARD_COLLECTION]
+    cards = pd.json_normalize(list(cards_collection.aggregate([])))
+
     if cards.empty:
         return cards
 
@@ -447,9 +607,11 @@ def s3_load_cards_from_mongo():
     cards["YEAR"] = pd.to_numeric(cards["YEAR"], errors="coerce")
     return cards.drop_duplicates(subset=[GEMRATE_ID_COL])
 
+
 def s3_to_token_lists(X: np.ndarray) -> list[list[str]]:
     vals = pd.Series(np.ravel(X)).fillna("").astype(str)
     return [[f"card_number={v}"] for v in vals]
+
 
 def s3_get_preprocess_pipeline():
     CATEGORICAL_COLS = ["CATEGORY", "SET_NAME", "PARALLEL"]
@@ -498,7 +660,9 @@ def s3_get_preprocess_pipeline():
             ("sparse", sparse_block),
             (
                 "svd",
-                TruncatedSVD(n_components=S3_SVD_N_COMPONENTS, random_state=S3_RANDOM_SEED),
+                TruncatedSVD(
+                    n_components=S3_SVD_N_COMPONENTS, random_state=S3_RANDOM_SEED
+                ),
             ),
             (
                 "to32",
@@ -552,10 +716,12 @@ def s3_get_preprocess_pipeline():
         ]
     )
 
+
 def s3_build_weekly_sales_vectors_global_time(sales_df):
-    print("Building Global-Time Sales Vectors...")
+    """Build grade-agnostic sales vectors - aggregate all grades per card."""
+    print("Building Global-Time Sales Vectors (Grade-Agnostic)...")
     s = sales_df.copy()
-    s["date"] = pd.to_datetime(s["date"], utc=True)
+    s["date"] = pd.to_datetime(s["date"], format="mixed", utc=True)
 
     global_start = pd.Timestamp("2018-01-01", tz="UTC")
 
@@ -563,7 +729,8 @@ def s3_build_weekly_sales_vectors_global_time(sales_df):
     s = s.loc[s["week"] >= 0]
     n_weeks = s["week"].max()
 
-    group_cols = ["universal_gemrate_id", "grade"]
+    # Group by card only (ignore grade) - aggregate all sales for a card
+    group_cols = ["universal_gemrate_id"]
     s["log_price"] = np.log1p(s["price"])
 
     price_wide = s.pivot_table(
@@ -575,8 +742,6 @@ def s3_build_weekly_sales_vectors_global_time(sales_df):
         index=group_cols, columns="week", values="log_price", aggfunc="size"
     )
     vol_wide = vol_wide.reindex(columns=range(n_weeks)).fillna(0.0).astype(np.float32)
-
-    half_grade_map = s.groupby(group_cols)["half_grade"].first()
 
     P = price_wide.to_numpy()
     M = (~np.isnan(P)).astype(np.float32)
@@ -597,38 +762,19 @@ def s3_build_weekly_sales_vectors_global_time(sales_df):
         [Pz, M, V_log, mu, sigma, np.log1p(total_volume)], axis=1
     ).astype(np.float32)
 
-    keys = pd.DataFrame(price_wide.index.to_list(), columns=["universal_gemrate_id", "grade"])
-    keys["half_grade"] = half_grade_map.loc[
-        keys.set_index(["universal_gemrate_id", "grade"]).index
-    ].values
+    # Keys are now just card IDs (no grade)
+    keys = pd.DataFrame(price_wide.index.to_list(), columns=["universal_gemrate_id"])
 
     return keys, S, M.sum(axis=1)
 
-def s3_normalize_grade(grade, half_grade):
-    g = (grade - 1.0) / 10.0
-    return np.array([g, half_grade], dtype=np.float32)
-
-class GradeProjector(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=32, out_dim=S3_GRADE_EMBED_DIM):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, out_dim),
-            nn.LayerNorm(out_dim),
-        )
-
-    def forward(self, x):
-        return self.net(x)
 
 class Encoder(nn.Module):
-    def __init__(self, meta_dim, grade_dim=2, out_dim=S3_ENCODER_OUT_DIM):
-        super().__init__()
-        self.grade_proj = GradeProjector(input_dim=grade_dim)
-        self.fc_in_dim = meta_dim + S3_GRADE_EMBED_DIM
+    """Grade-agnostic encoder - takes only card metadata, no grade input."""
 
+    def __init__(self, meta_dim, out_dim=S3_ENCODER_OUT_DIM):
+        super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(self.fc_in_dim, S3_ENCODER_HIDDEN_1),
+            nn.Linear(meta_dim, S3_ENCODER_HIDDEN_1),
             nn.ReLU(),
             nn.Dropout(S3_DROPOUT_P),
             nn.Linear(S3_ENCODER_HIDDEN_1, S3_ENCODER_HIDDEN_2),
@@ -637,21 +783,22 @@ class Encoder(nn.Module):
             nn.Linear(S3_ENCODER_HIDDEN_2, out_dim),
         )
 
-    def forward(self, x_meta, x_grade):
-        g_emb = self.grade_proj(x_grade)
-        x = torch.cat([x_meta, g_emb], dim=1)
-        z = self.net(x)
+    def forward(self, x_meta):
+        z = self.net(x_meta)
         return F.normalize(z, p=2, dim=1)
+
 
 def s3_cosine_sim_matrix(x):
     x = F.normalize(x, p=2, dim=1)
     return x @ x.T
 
-def s3_compute_batch_loss(enc, xb_meta, xb_grade, sb, wb, tau):
+
+def s3_compute_batch_loss(enc, xb_meta, sb, wb, tau):
+    """Compute KL-divergence loss between embedding similarity and sales similarity."""
     w = torch.clamp(wb, min=0.0)
     w = w / (w.sum() + 1e-8)
 
-    z = enc(xb_meta, xb_grade)
+    z = enc(xb_meta)
     Kz = s3_cosine_sim_matrix(z)
     Ks = s3_cosine_sim_matrix(sb)
 
@@ -667,18 +814,18 @@ def s3_compute_batch_loss(enc, xb_meta, xb_grade, sb, wb, tau):
     loss = (row_kl * w).sum() * (tau * tau)
     return loss
 
+
 def run_step_3():
-    print("Starting Step 3: Train Embedding...")
+    """Train grade-agnostic card embeddings using sales history similarity."""
+    print("Starting Step 3: Train Embedding (Grade-Agnostic)...")
     device = torch.device(
         "cuda"
         if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
-        else "cpu"
+        else "mps" if torch.backends.mps.is_available() else "cpu"
     )
     print(f"Using device: {device}")
 
-    cards = s3_load_cards_from_mongo()
+    cards = s3_load_cards_from_file_or_mongo()
     if cards.empty:
         raise ValueError("No cards found.")
 
@@ -692,31 +839,30 @@ def run_step_3():
 
     sales_df = pd.read_csv(S2_FEATURES_PREPPED_FILE)
     sales_df["universal_gemrate_id"] = sales_df["universal_gemrate_id"].astype(str)
+
+    # Build grade-agnostic sales vectors (one per card, aggregating all grades)
     sales_keys, S, obs_weeks = s3_build_weekly_sales_vectors_global_time(sales_df)
 
+    # Align sales keys to card metadata
     id_to_row = {str(gid): i for i, gid in enumerate(cards["GEMRATE_ID"])}
-    meta_feats, grade_feats, S_aligned, obs_aligned, aligned_keys = [], [], [], [], []
+    meta_feats, S_aligned, obs_aligned, aligned_keys = [], [], [], []
 
     for i in range(len(sales_keys)):
         gid = str(sales_keys.iloc[i]["universal_gemrate_id"])
         if gid in id_to_row:
             idx = id_to_row[gid]
-            g = float(sales_keys.iloc[i]["grade"])
-            h = float(sales_keys.iloc[i]["half_grade"])
             meta_feats.append(X_all[idx])
-            grade_feats.append(s3_normalize_grade(g, h))
             S_aligned.append(S[i])
             obs_aligned.append(obs_weeks[i])
-            aligned_keys.append(sales_keys.iloc[i])
+            aligned_keys.append({"universal_gemrate_id": gid})
 
-    print(f"Aligned {len(meta_feats)} sales records to card metadata.")
+    print(f"Aligned {len(meta_feats)} cards with sales to metadata.")
     X_meta = np.stack(meta_feats)
-    X_grade = np.stack(grade_feats)
     S_final = np.stack(S_aligned)
     W_final = np.array(obs_aligned).astype(np.float32)
     keys_df = pd.DataFrame(aligned_keys)
 
-    print("Performing Stratified Split by universal_gemrate_id...")
+    print("Performing train/val split...")
     gss = GroupShuffleSplit(
         n_splits=1, test_size=S3_FINETUNE_VAL_SPLIT, random_state=S3_RANDOM_SEED
     )
@@ -726,204 +872,301 @@ def run_step_3():
     enc = Encoder(meta_dim=X_meta.shape[1]).to(device)
     opt = torch.optim.AdamW(enc.parameters(), lr=S3_FINETUNE_LR)
 
+    # Datasets without grade (only meta, sales, weights)
     train_dataset = TensorDataset(
         torch.from_numpy(X_meta[train_idx]),
-        torch.from_numpy(X_grade[train_idx]),
         torch.from_numpy(S_final[train_idx]),
         torch.from_numpy(W_final[train_idx]),
+    )
+
+    val_dataset = TensorDataset(
+        torch.from_numpy(X_meta[val_idx]),
+        torch.from_numpy(S_final[val_idx]),
+        torch.from_numpy(W_final[val_idx]),
     )
 
     train_loader = DataLoader(
         train_dataset, batch_size=S3_FINETUNE_BATCH_SIZE, shuffle=True, drop_last=True
     )
+    val_loader = DataLoader(
+        val_dataset, batch_size=S3_FINETUNE_BATCH_SIZE, shuffle=False, drop_last=False
+    )
+
+    # Early stopping and checkpointing
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
+    best_encoder_state = None
 
     print(f"Starting Finetuning on {device}...")
-    for epoch in range(S3_FINETUNE_EPOCHS):
-        enc.train()
-        total_loss = 0.0
+    print(f"  → Early stopping patience: {S3_FINETUNE_PATIENCE} epochs")
 
-        for batch_meta, batch_grade, batch_s, batch_w in train_loader:
+    for epoch in range(S3_FINETUNE_EPOCHS):
+        # Training
+        enc.train()
+        train_loss = 0.0
+
+        for batch_meta, batch_s, batch_w in train_loader:
             b_meta = batch_meta.to(device)
-            b_grade = batch_grade.to(device)
             b_s = batch_s.to(device)
             b_w = batch_w.to(device)
 
-            loss = s3_compute_batch_loss(enc, b_meta, b_grade, b_s, b_w, S3_FINETUNE_TAU)
+            loss = s3_compute_batch_loss(enc, b_meta, b_s, b_w, S3_FINETUNE_TAU)
 
             opt.zero_grad()
             loss.backward()
             opt.step()
 
-            total_loss += loss.item()
+            train_loss += loss.item()
 
-        avg_loss = total_loss / len(train_loader)
-        print(f"Epoch {epoch + 1}: Avg Loss {avg_loss:.4f}")
+        avg_train_loss = train_loss / len(train_loader)
+
+        # Validation
+        enc.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for batch_meta, batch_s, batch_w in val_loader:
+                b_meta = batch_meta.to(device)
+                b_s = batch_s.to(device)
+                b_w = batch_w.to(device)
+
+                loss = s3_compute_batch_loss(enc, b_meta, b_s, b_w, S3_FINETUNE_TAU)
+                val_loss += loss.item()
+
+        avg_val_loss = (
+            val_loss / len(val_loader) if len(val_loader) > 0 else float("inf")
+        )
+
+        # Check for improvement
+        improved = avg_val_loss < best_val_loss
+        if improved:
+            best_val_loss = avg_val_loss
+            epochs_without_improvement = 0
+            best_encoder_state = {
+                k: v.cpu().clone() for k, v in enc.state_dict().items()
+            }
+            marker = " ✓ (best)"
+        else:
+            epochs_without_improvement += 1
+            marker = f" (no improvement: {epochs_without_improvement}/{S3_FINETUNE_PATIENCE})"
+
+        print(
+            f"Epoch {epoch + 1}: Train {avg_train_loss:.4f} | Val {avg_val_loss:.4f}{marker}"
+        )
+
+        # Early stopping check
+        if epochs_without_improvement >= S3_FINETUNE_PATIENCE:
+            print(f"Early stopping triggered at epoch {epoch + 1}")
+            break
+
+    # Load best model
+    if best_encoder_state is not None:
+        enc.load_state_dict(best_encoder_state)
+        print(f"Loaded best model (val loss: {best_val_loss:.4f})")
 
     torch.save(enc.state_dict(), "final_encoder.pt")
+    print("Saved final_encoder.pt")
 
-    print("Generating static card embeddings...")
+    # Generate one embedding per card (grade-agnostic)
+    print("Generating card embeddings (one per card, grade-agnostic)...")
     enc.eval()
     final_embs = []
     final_keys = []
-    # Generate both whole grades and half-grade variants (e.g., 9.0 with half=0 AND 9.0 with half=1 for 9.5)
-    grade_half_pairs = [
-        (g, h)
-        for g in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0]
-        for h in [0.0, 1.0]
-    ]
 
     with torch.no_grad():
-        for g, h in grade_half_pairs:
-            n = len(X_all)
-            g_vec = s3_normalize_grade(float(g), h)
-            X_g = np.tile(g_vec, (n, 1))
+        for i in range(0, len(X_all), S3_EMBED_BATCH_SIZE):
+            batch = torch.from_numpy(X_all[i : i + S3_EMBED_BATCH_SIZE]).to(device)
+            emb = enc(batch).cpu().numpy()
+            final_embs.append(emb)
 
-            for i in range(0, n, S3_EMBED_BATCH_SIZE):
-                xm = torch.from_numpy(X_all[i : i + S3_EMBED_BATCH_SIZE]).to(device)
-                xg = torch.from_numpy(X_g[i : i + S3_EMBED_BATCH_SIZE]).to(device)
+    all_embs = np.vstack(final_embs)
 
-                emb = enc(xm, xg).cpu().numpy()
-                final_embs.append(emb)
+    for _, r in cards.iterrows():
+        final_keys.append({"universal_gemrate_id": str(r["GEMRATE_ID"])})
 
-            for _, r in cards.iterrows():
-                final_keys.append(
-                    {
-                        "universal_gemrate_id": str(r["GEMRATE_ID"]),
-                        "grade": g,
-                        "half_grade": h,
-                    }
-                )
-
-    np.save(S3_EMBEDDING_VECTORS_FILE, np.vstack(final_embs))
+    np.save(S3_EMBEDDING_VECTORS_FILE, all_embs)
     pd.DataFrame(final_keys).to_csv(S3_EMBEDDING_KEYS_FILE, index=False)
-    print("Saved embeddings.")
+    print(f"Saved {len(all_embs)} embeddings (one per card).")
     print("Step 3 Complete.")
+
 
 # ==============================================================================
 # PART 4: MERGE PREDICTIONS FUNCTIONS
 # ==============================================================================
 
+
 def run_step_4():
-    print("Starting Step 4: Merge Embedding Predictions...")
+    """
+    Find similar cards using grade-agnostic embeddings, then filter by grade at query time.
+
+    For each sale row:
+    1. Look up the card's embedding (grade-agnostic)
+    2. Find top-K most similar cards by embedding
+    3. For each neighbor, look up sales at the SAME GRADE as the target row
+    4. Return neighbor prices from same-grade sales in lookback window
+    """
+    print("Starting Step 4: Merge Embedding Predictions (Grade-Filtered)...")
     print("Loading data...")
     if not os.path.exists(S2_FEATURES_PREPPED_FILE):
-        raise FileNotFoundError(f"{S2_FEATURES_PREPPED_FILE} not found. Run step 2 first.")
+        raise FileNotFoundError(
+            f"{S2_FEATURES_PREPPED_FILE} not found. Run step 2 first."
+        )
 
     df = pd.read_csv(S2_FEATURES_PREPPED_FILE)
-    df['date'] = pd.to_datetime(df['date'])
-    df['universal_gemrate_id'] = df['universal_gemrate_id'].astype(str)
+    df["date"] = pd.to_datetime(df["date"], format="mixed")
+    df["universal_gemrate_id"] = df["universal_gemrate_id"].astype(str)
 
-    if not os.path.exists(S3_EMBEDDING_KEYS_FILE) or not os.path.exists(S3_EMBEDDING_VECTORS_FILE):
+    if not os.path.exists(S3_EMBEDDING_KEYS_FILE) or not os.path.exists(
+        S3_EMBEDDING_VECTORS_FILE
+    ):
         raise FileNotFoundError("Embedding files not found. Run step 3 first.")
 
     keys = pd.read_csv(S3_EMBEDDING_KEYS_FILE)
-    keys['universal_gemrate_id'] = keys['universal_gemrate_id'].astype(str)
+    keys["universal_gemrate_id"] = keys["universal_gemrate_id"].astype(str)
 
-    vecs = np.load(S3_EMBEDDING_VECTORS_FILE).astype(np.float32)
+    all_vecs = np.load(S3_EMBEDDING_VECTORS_FILE).astype(np.float32)
 
-    print(f"Loaded {len(df)} sales rows and {len(vecs)} embeddings.")
+    print(f"Loaded {len(df)} sales rows and {len(all_vecs)} card embeddings.")
 
-    keys['key_tuple'] = list(zip(keys['universal_gemrate_id'], keys['grade']))
-    key_to_vec_idx = {k: i for i, k in enumerate(keys['key_tuple'])}
-    keys_lookup_list = keys['key_tuple'].tolist()
+    # Build card_id -> vec_idx mapping (grade-agnostic)
+    card_to_vec_idx = {
+        str(keys.iloc[i]["universal_gemrate_id"]): i for i in range(len(keys))
+    }
 
-    print("Indexing sales history...")
-    df_sorted = df.sort_values('date')
+    # Build sales index by (card_id, grade)
+    print("Indexing sales history by (card, grade)...")
+    df_sorted = df.sort_values("date")
     sales_lookup = {}
-    grouped = df_sorted.groupby(['universal_gemrate_id', 'grade'])
+    grouped = df_sorted.groupby(["universal_gemrate_id", "grade"])
 
     for (sid, g), group in tqdm(grouped, desc="Building sales index"):
-        dates = group['date'].values
-        prices = group['price'].values
+        dates = group["date"].values
+        prices = group["price"].values
         sales_lookup[(str(sid), float(g))] = (dates, prices)
 
-    print(f"Pre-computing top {S4_K_CANDIDATES} neighbors for {len(vecs)} vectors on GPU...")
+    # Get unique cards that have sales
+    cards_with_sales = list(set(k[0] for k in sales_lookup.keys()))
+    print(f"Found {len(cards_with_sales)} unique cards with sales.")
 
-    d = vecs.shape[1]
+    # Extract vectors only for cards with sales
+    sales_card_indices = []
+    valid_cards = []
+    for cid in cards_with_sales:
+        if cid in card_to_vec_idx:
+            sales_card_indices.append(card_to_vec_idx[cid])
+            valid_cards.append(cid)
 
-    faiss.normalize_L2(vecs)
+    print(f"Matched {len(valid_cards)} cards to embeddings.")
+    sales_vecs = all_vecs[sales_card_indices]
 
-    res = faiss.StandardGpuResources()
+    # Normalize
+    print("Normalizing vectors...")
+    norms = np.linalg.norm(sales_vecs, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1e-8)
+    sales_vecs = sales_vecs / norms
 
-    index_flat = faiss.IndexFlatIP(d)
+    # Build card_id -> index in sales_vecs
+    card_to_sales_idx = {cid: i for i, cid in enumerate(valid_cards)}
 
-    gpu_index = faiss.index_cpu_to_gpu(res, 0, index_flat)
+    # Pre-compute top-K neighbor cards for each card with sales
+    print(
+        f"Pre-computing top {S4_K_CANDIDATES} neighbor cards for {len(sales_vecs)} cards..."
+    )
 
-    gpu_index.add(vecs)
+    n_cards = len(sales_vecs)
+    neighbor_card_indices = np.zeros((n_cards, S4_K_CANDIDATES), dtype=np.int32)
+    neighbor_card_sims = np.zeros((n_cards, S4_K_CANDIDATES), dtype=np.float32)
 
-    similarities, indices = gpu_index.search(vecs, S4_K_CANDIDATES + 1)
+    batch_size = 1000
+    for i in tqdm(range(0, n_cards, batch_size), desc="Computing neighbors"):
+        end = min(i + batch_size, n_cards)
+        batch = sales_vecs[i:end]
 
-    distances = 1.0 - similarities
+        # Compute similarities to ALL cards with sales
+        sims = batch @ sales_vecs.T
 
-    indices = np.array(indices)
-    distances = np.array(distances)
+        # Zero out self-similarity
+        for j in range(end - i):
+            sims[j, i + j] = -1.0
 
-    print(f"Finding {S4_N_NEIGHBORS} active neighbors for each sale...")
+        # Get top K
+        top_k_idx = np.argpartition(-sims, S4_K_CANDIDATES, axis=1)[:, :S4_K_CANDIDATES]
+
+        # Sort within top K
+        for j in range(end - i):
+            sorted_order = np.argsort(-sims[j, top_k_idx[j]])
+            neighbor_card_indices[i + j] = top_k_idx[j][sorted_order]
+            neighbor_card_sims[i + j] = sims[j, top_k_idx[j][sorted_order]]
+
+    print(f"Finding {S4_N_NEIGHBORS} same-grade neighbors for each sale...")
 
     n_rows = len(df)
     res_prices = np.full((n_rows, S4_N_NEIGHBORS), np.nan, dtype=np.float32)
     res_sims = np.full((n_rows, S4_N_NEIGHBORS), np.nan, dtype=np.float32)
 
-    row_sids = df['universal_gemrate_id'].values
-    row_grades = df['grade'].values
-    row_dates = df['date'].values
+    row_sids = df["universal_gemrate_id"].values
+    row_grades = df["grade"].values
+    row_dates = df["date"].values
 
-    lookback_delta = np.timedelta64(S4_LOOKBACK_DAYS, 'D')
+    lookback_delta = np.timedelta64(S4_LOOKBACK_DAYS, "D")
 
     for i in tqdm(range(n_rows), desc="Processing rows"):
-        s_id = row_sids[i]
-        g = row_grades[i]
+        s_id = str(row_sids[i])
+        target_grade = float(row_grades[i])
         dt = row_dates[i]
 
-        k = (s_id, g)
-
-        if k not in key_to_vec_idx:
+        if s_id not in card_to_sales_idx:
             continue
 
-        idx = key_to_vec_idx[k]
+        card_idx = card_to_sales_idx[s_id]
 
-        candidate_indices = indices[idx]
-        candidate_dists = distances[idx]
+        # Get neighbor cards (by embedding similarity)
+        candidate_card_indices = neighbor_card_indices[card_idx]
+        candidate_card_sims = neighbor_card_sims[card_idx]
 
         found_count = 0
         window_start = dt - lookback_delta
 
-        for rank, neighbor_idx in enumerate(candidate_indices):
-            if neighbor_idx == idx:
-                continue
+        # For each neighbor card, check if it has sales at the TARGET GRADE
+        for rank, neighbor_card_idx in enumerate(candidate_card_indices):
+            neighbor_card_id = valid_cards[neighbor_card_idx]
 
-            n_key = keys_lookup_list[neighbor_idx]
+            # Look up sales for this neighbor card at the TARGET GRADE
+            neighbor_key = (neighbor_card_id, target_grade)
 
-            if n_key in sales_lookup:
-                n_dates, n_prices = sales_lookup[n_key]
+            if neighbor_key not in sales_lookup:
+                continue  # This neighbor card has no sales at this grade
 
-                start_idx = np.searchsorted(n_dates, window_start, side='left')
-                end_idx = np.searchsorted(n_dates, dt, side='right')
+            n_dates, n_prices = sales_lookup[neighbor_key]
 
-                if end_idx > start_idx:
-                    avg_price = np.mean(n_prices[start_idx:end_idx])
+            # Find sales in lookback window
+            start_idx = np.searchsorted(n_dates, window_start, side="left")
+            end_idx = np.searchsorted(n_dates, dt, side="right")
 
-                    sim = 1.0 - candidate_dists[rank]
+            if end_idx > start_idx:
+                avg_price = np.mean(n_prices[start_idx:end_idx])
 
-                    res_prices[i, found_count] = avg_price
-                    res_sims[i, found_count] = sim
+                res_prices[i, found_count] = avg_price
+                res_sims[i, found_count] = candidate_card_sims[rank]
 
-                    found_count += 1
+                found_count += 1
 
-                    if found_count >= S4_N_NEIGHBORS:
-                        break
+                if found_count >= S4_N_NEIGHBORS:
+                    break
 
     print("Appending new columns...")
     for n in range(S4_N_NEIGHBORS):
-        df[f'neighbor_{n+1}_avg_price'] = res_prices[:, n]
-        df[f'neighbor_{n+1}_similarity'] = res_sims[:, n]
+        df[f"neighbor_{n+1}_avg_price"] = res_prices[:, n]
+        df[f"neighbor_{n+1}_similarity"] = res_sims[:, n]
 
     print(f"Saving to {S4_OUTPUT_FILE}...")
     df.to_csv(S4_OUTPUT_FILE, index=False)
 
     filled = (~np.isnan(res_prices[:, 0])).sum()
-    print(f"Processing complete. {filled}/{n_rows} rows found at least one neighbor.")
+    print(
+        f"Processing complete. {filled}/{n_rows} rows found at least one same-grade neighbor."
+    )
     print("Step 4 Complete.")
+
 
 # ==============================================================================
 # MAIN EXECUTION

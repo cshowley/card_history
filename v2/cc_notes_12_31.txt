@@ -1,0 +1,44 @@
+training data v3:
+
+new data source: fanatics auctions aka "pwcc_graded_items"
+new feature column in fanatics: "subset"
+
+gemrate_pokemon_cards is outdated
+ebay & fanatics sales have been filled in
+	do they have missing gemrate_ids?
+	i.e. have all pokemon cards had >= 1 sale?
+	need that for embedding training
+
+1. use gemrate_pokemon_cards as baseline metadata aggregation
+2. pull all sales from ebay+fanatics, if any new gemrate_ids are found that are not present in gemrate_pokemon_cards then use the metadata contained in those sales to add to the embedding training preparation
+3. look for identical card metadata between gemrate_pokemon_cards & the sales history tables; if a card has identical metadata but conflicting gemrate IDs then use the sales history tables as the source of truth, then update the gemrate id in embedding metadata
+4. this should provide:
+	a. all cards & their metadata from gemrate_pokemon_cards
+	b. all cards' metadata from sales, including those not properly catalogged in gemrate_pokemon_cards
+	c. corrected gemrate_ids based on sales data
+		i. ID not used in embedding calculation, shouldn't be a problem
+** are there any cards whose IDs change during their sales history because a gemrate_id was updated? does using universal_gemrate_id avoid this problem?
+
+ebay_graded_items
+	gemrate_data
+		universal_gemrate_id
+	.parsed_description
+		category
+		year
+		set_name
+		name
+		card_number
+		parallel
+		subset (???)
+
+pwcc_graded_items
+	gemrate_data
+		universal_gemrate_id		
+	.parsed_description
+		category
+		year
+		set_name
+		name
+		card_number
+		parallel
+		subset (???)
