@@ -5,7 +5,6 @@ import pandas as pd
 import requests
 import torch
 import torch.nn.functional as F
-import faiss
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from dotenv import load_dotenv
