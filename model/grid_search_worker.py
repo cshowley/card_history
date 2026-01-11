@@ -5,7 +5,7 @@ import platform
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_percentage_error
+
 from tqdm import tqdm
 from xgboost import XGBRegressor
 
@@ -18,7 +18,7 @@ def get_xgb_device():
         cp.cuda.Device(0).compute_capability
         print("Using CUDA (NVIDIA GPU)")
         return "cuda:0"
-    except:
+    except:  # noqa: E722
         pass
 
     if platform.processor() == "arm" or "Apple" in platform.processor():
@@ -71,13 +71,14 @@ def run_search(worker_id, config_path):
             model.set_params(**g)
             model.fit(X_train, y_train, verbose=False)
             y_val_pred = model.predict(X_val)
-            mape = mean_absolute_percentage_error(y_val, y_val_pred)
+            ape = np.abs((y_val - y_val_pred) / y_val)
+            mdape = np.median(ape)
 
-            if mape < best_score:
-                best_score = mape
+            if mdape < best_score:
+                best_score = mdape
                 best_grid = g
                 print(
-                    f"\nWorker {worker_id}: New best MAPE: {best_score:.2%} at iter {i}"
+                    f"\nWorker {worker_id}: New best MdAPE: {best_score:.2%} at iter {i}"
                 )
 
                 result_data = {
@@ -92,7 +93,7 @@ def run_search(worker_id, config_path):
             print(f"\nWorker {worker_id}: Error with params {g}: {e}")
             continue
 
-    print(f"\nWorker {worker_id}: Finished. Best MAPE: {best_score:.2%}")
+    print(f"\nWorker {worker_id}: Finished. Best MdAPE: {best_score:.2%}")
 
 
 if __name__ == "__main__":
