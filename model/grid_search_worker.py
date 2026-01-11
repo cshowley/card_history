@@ -3,27 +3,17 @@ import json
 import os
 import platform
 
+import cupy as cp
 import numpy as np
 import pandas as pd
-import cupy as cp
 from tqdm import tqdm
 from xgboost import XGBRegressor
-
-def quantile_loss(alpha):
-    def loss(y_true, y_pred):
-        residual = y_true - y_pred
-        grad = np.where(residual > 0, alpha, alpha - 1)
-        hess = np.ones_like(residual)
-        return grad, hess
-    return loss
-
 
 
 def mdape(y_true, y_pred):
     ape = np.abs((y_true - y_pred) / y_true)
     return np.median(ape)
 
-QUANTILES = [0.05, 0.5, 0.95]
 
 def get_xgb_device():
     """Determine best device for XGBoost."""
@@ -66,6 +56,13 @@ def run_search(worker_id, config_path):
     X_train = np.nan_to_num(X_train, nan=0.0)
     X_val = np.nan_to_num(X_val, nan=0.0)
 
+    if "cuda" in device:
+        print("Moving data to GPU...")
+        X_train = cp.array(X_train)
+        y_train = cp.array(y_train)
+        X_val = cp.array(X_val)
+        y_val = cp.array(y_val)
+
     best_score = float("inf")
     best_grid = {}
 
@@ -77,37 +74,16 @@ def run_search(worker_id, config_path):
         f"Worker {worker_id}: Starting grid search with {len(param_grid)} combinations."
     )
 
-    # model = XGBRegressor(device=device, n_jobs=-1)
-
     for i, g in tqdm(
         enumerate(param_grid), total=len(param_grid), desc=f"Worker {worker_id}"
     ):
         try:
-            models = {}
-            for quantile in QUANTILES:
-                model = XGBRegressor(
-                    objective=quantile_loss(quantile), device=device, n_jobs=-1
-                )
-                model.set_params(**g)
-                model.fit(X_train, y_train, verbose=False)
-                models[quantile] = model
-
-            # Predicting quantiles
-            preds_05 = models[0.05].predict(X_val)
-            preds_50 = models[0.5].predict(X_val)
-            preds_95 = models[0.95].predict(X_val)
-
-            # Lower and upper bounds
-            lower_bound = preds_05
-            upper_bound = preds_95
-            median_prediction = preds_50
-
-
+            model = XGBRegressor(device=device, n_jobs=-1)
             model.set_params(**g)
-            model.fit(X_train, y_train)
+            model.fit(X_train, y_train, verbose=False)
             y_val_pred = model.predict(X_val)
             mape = mdape(np.exp(cp.asnumpy(y_val)), np.exp(cp.asnumpy(y_val_pred)))
-            
+
             if mape < best_score:
                 best_score = mape
                 best_grid = g
