@@ -14,21 +14,6 @@ TRAIN_TEST_SPLIT = 0.8
 VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
 BAD_FEATURES = []
-<<<<<<< Updated upstream
-N_WORKERS = 1
-
-
-PARAM_GRID = {
-    "max_depth": [8, 12, 16],
-    "learning_rate": [0.05, 0.1, 0.2],
-    "n_estimators": [50, 100, 200],
-    "min_child_weight": [5, 10],
-    "subsample": [0.8, 0.9],
-    "colsample_bytree": [0.8, 1.0],
-    "gamma": [0],
-    "reg_alpha": [0, 0.1],
-    "reg_lambda": [1, 2],
-=======
 N_WORKERS = 4
 N_TRIALS = 4000
 
@@ -42,7 +27,6 @@ PARAM_RANGES = {
     'gamma': (0.0, 5.0),
     'reg_alpha': (0.0, 10.0),
     'reg_lambda': (1.0, 10.0)
->>>>>>> Stashed changes
 }
 
 
@@ -56,29 +40,16 @@ def load_and_prep_data():
     else:
         df = pd.read_csv(FEATURES_PREPPED_FILE)
 
-<<<<<<< Updated upstream
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.sort_values(by="date")
-    df = df[df["date"] >= START_DATE]
 
-    feature_cols = [
-        col
-        for col in df.columns
-        if col not in ["date", "universal_gemrate_id", "price"]
-        and col not in BAD_FEATURES
-    ]
-
-    train_df = df.iloc[: int(len(df) * TRAIN_TEST_SPLIT)]
-    test_df = df.iloc[int(len(df) * TRAIN_TEST_SPLIT) :]
-    val_df = test_df.iloc[: int(len(test_df) * VAL_TEST_SPLIT)]
-    test_df = test_df.iloc[int(len(test_df) * VAL_TEST_SPLIT) :]
-=======
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
     df = df.sort_values(by='date')
     df = df[df['date'] >= START_DATE]
     
     feature_cols = [col for col in df.columns if col not in ['universal_gemrate_id', 'date', 'price'] and col not in BAD_FEATURES]
->>>>>>> Stashed changes
+    train_df = df.iloc[: int(len(df) * TRAIN_TEST_SPLIT)]
+    test_df = df.iloc[int(len(df) * TRAIN_TEST_SPLIT) :]
+    val_df = test_df.iloc[: int(len(test_df) * VAL_TEST_SPLIT)]
+    test_df = test_df.iloc[int(len(test_df) * VAL_TEST_SPLIT) :]
 
     X_train = train_df[feature_cols].copy()
     y_train = train_df["price"].copy()
@@ -107,18 +78,6 @@ def load_and_prep_data():
     with open(f"{data_dir}/feature_cols.json", "w") as f:
         json.dump(feature_cols, f)
 
-<<<<<<< Updated upstream
-
-def split_grid_and_run_workers():
-    full_grid = list(ParameterGrid(PARAM_GRID))
-    np.random.shuffle(full_grid)
-    total_params = len(full_grid)
-    print(f"Total parameter combinations: {total_params}")
-
-    chunk_size = int(np.ceil(total_params / N_WORKERS))
-    chunks = [full_grid[i : i + chunk_size] for i in range(0, total_params, chunk_size)]
-
-=======
 def get_random_params():
     params = {}
     
@@ -150,7 +109,6 @@ def split_grid_and_run_workers():
     chunk_size = int(np.ceil(N_TRIALS / N_WORKERS))
     chunks = [random_search_grid[i:i + chunk_size] for i in range(0, N_TRIALS, chunk_size)]
     
->>>>>>> Stashed changes
     config_dir = "model/configs"
     os.makedirs(config_dir, exist_ok=True)
 
