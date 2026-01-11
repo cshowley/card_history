@@ -1,5 +1,5 @@
-import math
 import json
+import math
 import os
 import random
 import subprocess
@@ -18,15 +18,15 @@ N_WORKERS = 2
 N_TRIALS = 4000
 
 PARAM_RANGES = {
-    'max_depth': (3, 15),
-    'learning_rate': (0.01, 0.2),
-    'n_estimators': (100, 2000),
-    'min_child_weight': (1, 7),
-    'subsample': (0.6, 0.95),
-    'colsample_bytree': (0.6, 0.95),
-    'gamma': (0.0, 5.0),
-    'reg_alpha': (0.0, 10.0),
-    'reg_lambda': (1.0, 10.0)
+    "max_depth": (3, 15),
+    "learning_rate": (0.01, 0.2),
+    "n_estimators": (100, 2000),
+    "min_child_weight": (1, 7),
+    "subsample": (0.6, 0.95),
+    "colsample_bytree": (0.6, 0.95),
+    "gamma": (0.0, 5.0),
+    "reg_alpha": (0.0, 10.0),
+    "reg_lambda": (1.0, 10.0),
 }
 
 
@@ -40,12 +40,15 @@ def load_and_prep_data():
     else:
         df = pd.read_csv(FEATURES_PREPPED_FILE)
 
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.sort_values(by="date")
+    df = df[df["date"] >= START_DATE]
 
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
-    df = df.sort_values(by='date')
-    df = df[df['date'] >= START_DATE]
-    
-    feature_cols = [col for col in df.columns if col not in ['gemrate_id', 'date', 'price'] and col not in BAD_FEATURES]
+    feature_cols = [
+        col
+        for col in df.columns
+        if col not in ["gemrate_id", "date", "price"] and col not in BAD_FEATURES
+    ]
     train_df = df.iloc[: int(len(df) * TRAIN_TEST_SPLIT)]
     test_df = df.iloc[int(len(df) * TRAIN_TEST_SPLIT) :]
     val_df = test_df.iloc[: int(len(test_df) * VAL_TEST_SPLIT)]
@@ -78,37 +81,43 @@ def load_and_prep_data():
     with open(f"{data_dir}/feature_cols.json", "w") as f:
         json.dump(feature_cols, f)
 
+
 def get_random_params():
     params = {}
-    
-    params['max_depth'] = random.randint(*PARAM_RANGES['max_depth'])
-    params['n_estimators'] = random.randint(*PARAM_RANGES['n_estimators'])
-    params['min_child_weight'] = random.randint(*PARAM_RANGES['min_child_weight'])
 
-    params['subsample'] = random.uniform(*PARAM_RANGES['subsample'])
-    params['colsample_bytree'] = random.uniform(*PARAM_RANGES['colsample_bytree'])
-    
-    lr_min, lr_max = PARAM_RANGES['learning_rate']
-    params['learning_rate'] = math.exp(random.uniform(math.log(lr_min), math.log(lr_max)))
-    
+    params["max_depth"] = random.randint(*PARAM_RANGES["max_depth"])
+    params["n_estimators"] = random.randint(*PARAM_RANGES["n_estimators"])
+    params["min_child_weight"] = random.randint(*PARAM_RANGES["min_child_weight"])
+
+    params["subsample"] = random.uniform(*PARAM_RANGES["subsample"])
+    params["colsample_bytree"] = random.uniform(*PARAM_RANGES["colsample_bytree"])
+
+    lr_min, lr_max = PARAM_RANGES["learning_rate"]
+    params["learning_rate"] = math.exp(
+        random.uniform(math.log(lr_min), math.log(lr_max))
+    )
+
     def log_uniform(min_val, max_val):
-        min_val = max(min_val, 1e-9) 
+        min_val = max(min_val, 1e-9)
         return math.exp(random.uniform(math.log(min_val), math.log(max_val)))
 
-    params['gamma'] = log_uniform(*PARAM_RANGES['gamma'])
-    params['reg_alpha'] = log_uniform(*PARAM_RANGES['reg_alpha'])
-    params['reg_lambda'] = log_uniform(*PARAM_RANGES['reg_lambda'])
-    
+    params["gamma"] = log_uniform(*PARAM_RANGES["gamma"])
+    params["reg_alpha"] = log_uniform(*PARAM_RANGES["reg_alpha"])
+    params["reg_lambda"] = log_uniform(*PARAM_RANGES["reg_lambda"])
+
     return params
+
 
 def split_grid_and_run_workers():
     print(f"Generating {N_TRIALS} random parameter combinations...")
-    
+
     random_search_grid = [get_random_params() for _ in range(N_TRIALS)]
-    
+
     chunk_size = int(np.ceil(N_TRIALS / N_WORKERS))
-    chunks = [random_search_grid[i:i + chunk_size] for i in range(0, N_TRIALS, chunk_size)]
-    
+    chunks = [
+        random_search_grid[i : i + chunk_size] for i in range(0, N_TRIALS, chunk_size)
+    ]
+
     config_dir = "model/configs"
     os.makedirs(config_dir, exist_ok=True)
 

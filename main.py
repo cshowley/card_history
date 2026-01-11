@@ -68,7 +68,6 @@ S6_OUTPUT_FILE = "features_prepped_with_neighbors.csv"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-
 def s1_fetch_index_data(url):
     response = requests.get(url)
     response.raise_for_status()
@@ -163,7 +162,6 @@ def run_step_1():
     index_df = s1_fetch_index_data(S1_INDEX_API_URL)
     index_df.to_csv(S1_INDEX_FILE, index=False)
     print("Step 1 Complete.")
-
 
 
 def s2_clean_grade(val):
@@ -855,7 +853,6 @@ def s4_train_and_extract(X_data, ids_map):
     mean_vecs = df_vecs.groupby("gemrate_id").mean()
 
     return mean_vecs
-
 
 
 def run_step_4():
