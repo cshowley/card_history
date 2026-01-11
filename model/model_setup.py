@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-FEATURES_PREPPED_FILE = "features_prepped.csv"
+FEATURES_PREPPED_FILE = "features_prepped_with_neighbors.csv"
 TRAIN_TEST_SPLIT = 0.8
 VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)

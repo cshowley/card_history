@@ -5,7 +5,7 @@ import platform
 
 import numpy as np
 import pandas as pd
-
+import cupy as cp
 from tqdm import tqdm
 from xgboost import XGBRegressor
 
@@ -16,6 +16,12 @@ def quantile_loss(alpha):
         hess = np.ones_like(residual)
         return grad, hess
     return loss
+
+
+
+def mdape(y_true, y_pred):
+    ape = np.abs((y_true - y_pred) / y_true)
+    return np.median(ape)
 
 QUANTILES = [0.05, 0.5, 0.95]
 
@@ -96,11 +102,14 @@ def run_search(worker_id, config_path):
             upper_bound = preds_95
             median_prediction = preds_50
 
-            ape = np.abs((y_val - median_prediction) / y_val)
-            mdape = np.median(ape)
 
-            if mdape < best_score:
-                best_score = mdape
+            model.set_params(**g)
+            model.fit(X_train, y_train)
+            y_val_pred = model.predict(X_val)
+            mape = mdape(np.exp(cp.asnumpy(y_val)), np.exp(cp.asnumpy(y_val_pred)))
+            
+            if mape < best_score:
+                best_score = mape
                 best_grid = g
                 print(
                     f"\nWorker {worker_id}: New best MdAPE: {best_score:.2%} at iter {i}"

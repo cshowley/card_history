@@ -32,12 +32,15 @@ S1_INDEX_API_URL = "https://price.collectorcrypt.com/api/indexes/modern"
 S1_EBAY_MARKET_FILE = "market_ebay.csv"
 S1_PWCC_MARKET_FILE = "market_pwcc.csv"
 S1_INDEX_FILE = "index.csv"
+S1_MONGO_MAX_TIME_MS = 6000000
 
 
 S2_NUMBER_OF_BIDS_FILTER = 3
 S2_N_SALES_BACK = 5
 S2_WEEKS_BACK_LIST = [1, 2, 3, 4]
 S2_FEATURES_PREPPED_FILE = "features_prepped.csv"
+S2_INDEX_EMA_SHORT_SPAN = 12
+S2_INDEX_EMA_LONG_SPAN = 26
 
 
 S3_INPUT_CATALOG_FILE = "gemrate_pokemon_catalog_20260108.csv"
@@ -63,6 +66,7 @@ S6_BATCH_SIZE = 10000
 S6_OUTPUT_FILE = "features_prepped_with_neighbors.csv"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 
 def s1_fetch_index_data(url):
@@ -161,6 +165,7 @@ def run_step_1():
     print("Step 1 Complete.")
 
 
+
 def s2_clean_grade(val):
     s = str(val).lower().strip().replace("g", "").replace("_", ".")
     if s in ["nan", "none", "", "0", "auth"]:
@@ -204,7 +209,7 @@ def s2_calculate_seller_popularity(df):
     df["seller_cum_count"] = df.groupby("seller_name").cumcount() + 1
     df["global_cum_count"] = np.arange(1, len(df) + 1)
     df["seller_popularity"] = df["seller_cum_count"] / df["global_cum_count"]
-    df.drop(columns=["seller_cum_count", "global_cum_count"], inplace=True)
+    df = df.drop(columns=["seller_cum_count", "global_cum_count"])
     return df
 
 
@@ -224,6 +229,8 @@ def s2_create_previous_sale_features(df, n_sales_back):
         "grade_co_CGC",
         "grade_co_PSA",
     ]
+    # Filter to only columns that exist in the dataframe
+    feature_cols = [col for col in feature_cols if col in df.columns]
     new_columns = []
 
     for n in range(1, n_sales_back + 1):
@@ -261,6 +268,9 @@ def s2_create_lookback_features(df, weeks_back_list):
         "grade_co_CGC",
         "grade_co_PSA",
     ]
+    # Filter to only columns that exist in the dataframe
+    agg_cols = [col for col in agg_cols if col in df.columns]
+
     weekly_agg = (
         df.groupby(["gemrate_id", "grade", "week_start"])[agg_cols].mean().reset_index()
     )
@@ -305,6 +315,8 @@ def s2_create_adjacent_grade_features(df, n_sales_back):
         "grade_co_PSA",
         "seller_popularity",
     ]
+    # Filter to only columns that exist in the dataframe
+    feature_cols = [col for col in feature_cols if col in df.columns]
     new_columns = []
 
     ref = df[["gemrate_id", "grade", "date"] + feature_cols].copy()
@@ -378,8 +390,12 @@ def s2_load_and_join_index_data(df, filepath):
 
     idx_df["index_change_1d"] = idx_df["index_value"].diff()
     idx_df["index_change_1w"] = idx_df["index_value"].diff(7)
-    idx_df["index_ema_12"] = idx_df["index_value"].ewm(span=12).mean()
-    idx_df["index_ema_26"] = idx_df["index_value"].ewm(span=26).mean()
+    idx_df["index_ema_12"] = (
+        idx_df["index_value"].ewm(span=S2_INDEX_EMA_SHORT_SPAN).mean()
+    )
+    idx_df["index_ema_26"] = (
+        idx_df["index_value"].ewm(span=S2_INDEX_EMA_LONG_SPAN).mean()
+    )
 
     df = df.merge(idx_df, on="date", how="left")
     return df
@@ -454,7 +470,7 @@ def s2_load_and_clean_pwcc(filepath):
     ]
     df = df.dropna(subset=["gemrate_id"])
 
-    df["grade"] = df["gemrate_data.grade"].apply(s2_clean_grade)
+    df["grade"] = df["grade"].apply(s2_clean_grade)
     df = df.dropna(subset=["grade"])
     df[["grade", "half_grade"]] = df["grade"].apply(
         lambda x: pd.Series(s2_process_grade(x))
@@ -839,6 +855,7 @@ def s4_train_and_extract(X_data, ids_map):
     mean_vecs = df_vecs.groupby("gemrate_id").mean()
 
     return mean_vecs
+
 
 
 def run_step_4():
