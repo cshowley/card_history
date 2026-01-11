@@ -134,7 +134,7 @@ def split_grid_and_run_workers():
         
         cmd = [
             sys.executable,
-            "model/grid_search_worker.py",
+            "model/hyperparameter_search_worker.py",
             "--gpu_id",
             str(i),
             "--config",
