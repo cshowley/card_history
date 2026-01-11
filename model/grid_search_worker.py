@@ -9,6 +9,15 @@ import pandas as pd
 from tqdm import tqdm
 from xgboost import XGBRegressor
 
+def quantile_loss(alpha):
+    def loss(y_true, y_pred):
+        residual = y_true - y_pred
+        grad = np.where(residual > 0, alpha, alpha - 1)
+        hess = np.ones_like(residual)
+        return grad, hess
+    return loss
+
+QUANTILES = [0.05, 0.5, 0.95]
 
 def get_xgb_device():
     """Determine best device for XGBoost."""
@@ -62,16 +71,32 @@ def run_search(worker_id, config_path):
         f"Worker {worker_id}: Starting grid search with {len(param_grid)} combinations."
     )
 
-    model = XGBRegressor(device=device, n_jobs=-1)
+    # model = XGBRegressor(device=device, n_jobs=-1)
 
     for i, g in tqdm(
         enumerate(param_grid), total=len(param_grid), desc=f"Worker {worker_id}"
     ):
         try:
-            model.set_params(**g)
-            model.fit(X_train, y_train, verbose=False)
-            y_val_pred = model.predict(X_val)
-            ape = np.abs((y_val - y_val_pred) / y_val)
+            models = {}
+            for quantile in QUANTILES:
+                model = XGBRegressor(
+                    objective=quantile_loss(quantile), device=device, n_jobs=-1
+                )
+                model.set_params(**g)
+                model.fit(X_train, y_train, verbose=False)
+                models[quantile] = model
+
+            # Predicting quantiles
+            preds_05 = models[0.05].predict(X_val)
+            preds_50 = models[0.5].predict(X_val)
+            preds_95 = models[0.95].predict(X_val)
+
+            # Lower and upper bounds
+            lower_bound = preds_05
+            upper_bound = preds_95
+            median_prediction = preds_50
+
+            ape = np.abs((y_val - median_prediction) / y_val)
             mdape = np.median(ape)
 
             if mdape < best_score:

@@ -9,12 +9,12 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-FEATURES_PREPPED_FILE = "features_prepped_with_neighbors.csv"
+FEATURES_PREPPED_FILE = "features_prepped.csv"
 TRAIN_TEST_SPLIT = 0.8
 VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
 BAD_FEATURES = []
-N_WORKERS = 4
+N_WORKERS = 2
 N_TRIALS = 4000
 
 PARAM_RANGES = {
@@ -45,7 +45,7 @@ def load_and_prep_data():
     df = df.sort_values(by='date')
     df = df[df['date'] >= START_DATE]
     
-    feature_cols = [col for col in df.columns if col not in ['universal_gemrate_id', 'date', 'price'] and col not in BAD_FEATURES]
+    feature_cols = [col for col in df.columns if col not in ['gemrate_id', 'date', 'price'] and col not in BAD_FEATURES]
     train_df = df.iloc[: int(len(df) * TRAIN_TEST_SPLIT)]
     test_df = df.iloc[int(len(df) * TRAIN_TEST_SPLIT) :]
     val_df = test_df.iloc[: int(len(test_df) * VAL_TEST_SPLIT)]
