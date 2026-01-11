@@ -15,7 +15,7 @@ model/__pycache__
 
 # Ignore all csv files
 *.csv
-
+*.parquet
 *.npy
 *.pt
 

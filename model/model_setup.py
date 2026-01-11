@@ -8,15 +8,14 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import ParameterGrid
 
-# Use output from Step 4 (includes neighbor features from embeddings)
 FEATURES_PREPPED_FILE = "features_prepped_with_neighbors.csv"
 TRAIN_TEST_SPLIT = 0.8
 VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
 BAD_FEATURES = []
-N_WORKERS = 1  # Single worker for CPU (parallel workers don't help on same machine)
+N_WORKERS = 1
 
-# Reduced grid for faster iteration on CPU
+
 PARAM_GRID = {
     "max_depth": [8, 12, 16],
     "learning_rate": [0.05, 0.1, 0.2],
@@ -120,7 +119,6 @@ def split_grid_and_run_workers():
         processes.append(p)
         print(f"Started worker {i} with {len(chunk)} combinations.")
 
-    # Wait for all
     for p in processes:
         p.wait()
 

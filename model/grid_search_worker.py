@@ -12,18 +12,15 @@ from xgboost import XGBRegressor
 
 def get_xgb_device():
     """Determine best device for XGBoost."""
-    # Check for CUDA
     try:
         import cupy as cp
 
-        cp.cuda.Device(0).compute_capability  # Will fail if no CUDA
+        cp.cuda.Device(0).compute_capability
         print("Using CUDA (NVIDIA GPU)")
         return "cuda:0"
     except:
         pass
 
-    # XGBoost doesn't support MPS directly, but on Apple Silicon
-    # CPU mode uses Apple's Accelerate framework which is fast
     if platform.processor() == "arm" or "Apple" in platform.processor():
         print("Using CPU with Apple Accelerate (M-series optimized)")
     else:
@@ -51,7 +48,6 @@ def run_search(worker_id, config_path):
 
     X_train, y_train, X_val, y_val = load_data(data_dir)
 
-    # Replace NaN with 0 for XGBoost
     X_train = np.nan_to_num(X_train, nan=0.0)
     X_val = np.nan_to_num(X_val, nan=0.0)
 
@@ -66,7 +62,6 @@ def run_search(worker_id, config_path):
         f"Worker {worker_id}: Starting grid search with {len(param_grid)} combinations."
     )
 
-    # Configure model with detected device
     model = XGBRegressor(device=device, n_jobs=-1)
 
     for i, g in tqdm(
