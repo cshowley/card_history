@@ -131,7 +131,7 @@ def split_grid_and_run_workers():
         config_path = f"{config_dir}/grid_chunk_{i}.json"
         with open(config_path, "w") as f:
             json.dump(chunk, f)
-
+        
         cmd = [
             sys.executable,
             "model/grid_search_worker.py",

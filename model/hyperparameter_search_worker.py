@@ -15,14 +15,13 @@ def mdape(y_true, y_pred):
     return np.median(ape)
 
 
-def get_xgb_device():
+def get_xgb_device(worker_id):
     """Determine best device for XGBoost."""
     try:
         import cupy as cp
-
-        cp.cuda.Device(0).compute_capability
+        cp.cuda.Device(worker_id).use()
         print("Using CUDA (NVIDIA GPU)")
-        return "cuda:0"
+        return f"cuda:{worker_id}"
     except:  # noqa: E722
         pass
 
@@ -49,7 +48,7 @@ def run_search(worker_id, config_path):
         param_grid = json.load(f)
 
     data_dir = "model/data"
-    device = get_xgb_device()
+    device = get_xgb_device(worker_id)
 
     X_train, y_train, X_val, y_val = load_data(data_dir)
 
@@ -57,7 +56,6 @@ def run_search(worker_id, config_path):
     X_val = np.nan_to_num(X_val, nan=0.0)
 
     if "cuda" in device:
-        print("Moving data to GPU...")
         X_train = cp.array(X_train)
         y_train = cp.array(y_train)
         X_val = cp.array(X_val)
@@ -71,7 +69,7 @@ def run_search(worker_id, config_path):
     result_file = os.path.join(results_dir, f"worker_{worker_id}_best.json")
 
     print(
-        f"Worker {worker_id}: Starting grid search with {len(param_grid)} combinations."
+        f"Worker {worker_id}: Starting hyperparameter search with {len(param_grid)} combinations."
     )
 
     for i, g in tqdm(
