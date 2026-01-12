@@ -11,21 +11,25 @@ from xgboost import XGBRegressor
 
 
 def get_xgb_device():
-    """Determine best device for XGBoost."""
+    """Determine best device for XGBoost: CUDA -> MPS (CPU) -> CPU."""
+    # Try CUDA first (NVIDIA GPU)
     try:
         import cupy as cp
 
         cp.cuda.Device(0).compute_capability
         print("Using CUDA (NVIDIA GPU)")
         return "cuda:0"
-    except:  # noqa: E722
+    except Exception:
         pass
 
+    # Check for Apple Silicon (MPS)
+    # Note: XGBoost doesn't have native MPS support, but on Apple Silicon
+    # it uses CPU with Apple Accelerate framework for optimization
     if platform.processor() == "arm" or "Apple" in platform.processor():
         print("Using CPU with Apple Accelerate (M-series optimized)")
-    else:
-        print("Using CPU")
+        return "cpu"
 
+    print("Using CPU")
     return "cpu"
 
 
