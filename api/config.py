@@ -10,14 +10,14 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # MongoDB
-    mongo_url: str = os.getenv("MONGO_URL", os.getenv("MONGO_URI", ""))
+    mongo_uri: str = os.getenv("MONGO_URI", "")
     mongo_db_name: str = "gemrate"
     ebay_collection: str = "ebay_graded_items"
     pwcc_collection: str = "pwcc_graded_items"
 
     # Model artifacts
     artifacts_dir: str = "api/artifacts"
-    neighbors_file: str = "neighbors.parquet"
+    neighbors_file: str = "api/artifacts/neighbors.parquet"
 
     # Index API
     index_api_url: str = "https://price.collectorcrypt.com/api/indexes/modern"
@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore extra env vars like MONGO_URI
 
 
 @lru_cache()

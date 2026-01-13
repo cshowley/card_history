@@ -13,20 +13,39 @@ FEATURES_PREPPED_FILE = "features_prepped_with_neighbors.csv"
 TRAIN_TEST_SPLIT = 0.8
 VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
-BAD_FEATURES = []
+BAD_FEATURES = [
+    # Remove seller_popularity and all related features
+    "seller_popularity",
+    "avg_seller_popularity_1w_ago",
+    "avg_seller_popularity_2w_ago",
+    "avg_seller_popularity_3w_ago",
+    "avg_seller_popularity_4w_ago",
+    "prev_1_above_seller_popularity",
+    "prev_2_above_seller_popularity",
+    "prev_3_above_seller_popularity",
+    "prev_4_above_seller_popularity",
+    "prev_5_above_seller_popularity",
+    "prev_1_below_seller_popularity",
+    "prev_2_below_seller_popularity",
+    "prev_3_below_seller_popularity",
+    "prev_4_below_seller_popularity",
+    "prev_5_below_seller_popularity",
+    # Also exclude gemrate_id if somehow included
+    "gemrate_id",
+]
 N_WORKERS = 4
-N_TRIALS = 4000
+N_TRIALS = 1000
 
 PARAM_RANGES = {
-    'max_depth': (3, 15),
-    'learning_rate': (0.01, 0.2),
-    'n_estimators': (100, 2000),
-    'min_child_weight': (1, 7),
-    'subsample': (0.6, 0.95),
-    'colsample_bytree': (0.6, 0.95),
-    'gamma': (0.0, 5.0),
-    'reg_alpha': (0.0, 10.0),
-    'reg_lambda': (1.0, 10.0)
+    "max_depth": (3, 15),
+    "learning_rate": (0.01, 0.2),
+    "n_estimators": (100, 2000),
+    "min_child_weight": (1, 7),
+    "subsample": (0.6, 0.95),
+    "colsample_bytree": (0.6, 0.95),
+    "gamma": (0.0, 5.0),
+    "reg_alpha": (0.0, 10.0),
+    "reg_lambda": (1.0, 10.0),
 }
 
 
@@ -40,12 +59,16 @@ def load_and_prep_data():
     else:
         df = pd.read_csv(FEATURES_PREPPED_FILE)
 
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.sort_values(by="date")
+    df = df[df["date"] >= START_DATE]
 
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
-    df = df.sort_values(by='date')
-    df = df[df['date'] >= START_DATE]
-    
-    feature_cols = [col for col in df.columns if col not in ['universal_gemrate_id', 'date', 'price'] and col not in BAD_FEATURES]
+    feature_cols = [
+        col
+        for col in df.columns
+        if col not in ["universal_gemrate_id", "date", "price"]
+        and col not in BAD_FEATURES
+    ]
     train_df = df.iloc[: int(len(df) * TRAIN_TEST_SPLIT)]
     test_df = df.iloc[int(len(df) * TRAIN_TEST_SPLIT) :]
     val_df = test_df.iloc[: int(len(test_df) * VAL_TEST_SPLIT)]
@@ -78,37 +101,43 @@ def load_and_prep_data():
     with open(f"{data_dir}/feature_cols.json", "w") as f:
         json.dump(feature_cols, f)
 
+
 def get_random_params():
     params = {}
-    
-    params['max_depth'] = random.randint(*PARAM_RANGES['max_depth'])
-    params['n_estimators'] = random.randint(*PARAM_RANGES['n_estimators'])
-    params['min_child_weight'] = random.randint(*PARAM_RANGES['min_child_weight'])
 
-    params['subsample'] = random.uniform(*PARAM_RANGES['subsample'])
-    params['colsample_bytree'] = random.uniform(*PARAM_RANGES['colsample_bytree'])
-    
-    lr_min, lr_max = PARAM_RANGES['learning_rate']
-    params['learning_rate'] = math.exp(random.uniform(math.log(lr_min), math.log(lr_max)))
-    
+    params["max_depth"] = random.randint(*PARAM_RANGES["max_depth"])
+    params["n_estimators"] = random.randint(*PARAM_RANGES["n_estimators"])
+    params["min_child_weight"] = random.randint(*PARAM_RANGES["min_child_weight"])
+
+    params["subsample"] = random.uniform(*PARAM_RANGES["subsample"])
+    params["colsample_bytree"] = random.uniform(*PARAM_RANGES["colsample_bytree"])
+
+    lr_min, lr_max = PARAM_RANGES["learning_rate"]
+    params["learning_rate"] = math.exp(
+        random.uniform(math.log(lr_min), math.log(lr_max))
+    )
+
     def log_uniform(min_val, max_val):
-        min_val = max(min_val, 1e-9) 
+        min_val = max(min_val, 1e-9)
         return math.exp(random.uniform(math.log(min_val), math.log(max_val)))
 
-    params['gamma'] = log_uniform(*PARAM_RANGES['gamma'])
-    params['reg_alpha'] = log_uniform(*PARAM_RANGES['reg_alpha'])
-    params['reg_lambda'] = log_uniform(*PARAM_RANGES['reg_lambda'])
-    
+    params["gamma"] = log_uniform(*PARAM_RANGES["gamma"])
+    params["reg_alpha"] = log_uniform(*PARAM_RANGES["reg_alpha"])
+    params["reg_lambda"] = log_uniform(*PARAM_RANGES["reg_lambda"])
+
     return params
+
 
 def split_grid_and_run_workers():
     print(f"Generating {N_TRIALS} random parameter combinations...")
-    
+
     random_search_grid = [get_random_params() for _ in range(N_TRIALS)]
-    
+
     chunk_size = int(np.ceil(N_TRIALS / N_WORKERS))
-    chunks = [random_search_grid[i:i + chunk_size] for i in range(0, N_TRIALS, chunk_size)]
-    
+    chunks = [
+        random_search_grid[i : i + chunk_size] for i in range(0, N_TRIALS, chunk_size)
+    ]
+
     config_dir = "model/configs"
     os.makedirs(config_dir, exist_ok=True)
 

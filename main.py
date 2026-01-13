@@ -21,7 +21,7 @@ RUN_STEP_2_FEATURE_PREP = False
 RUN_STEP_3_TEXT_EMBEDDING = False
 RUN_STEP_4_PRICE_EMBEDDING = False
 RUN_STEP_5_NEIGHBOR_SEARCH = False
-RUN_STEP_6_NEIGHBOR_PRICES = True
+RUN_STEP_6_NEIGHBOR_PRICES = False
 
 
 S1_MONGO_URL = os.getenv("MONGO_URL") or os.getenv("MONGO_URI")
@@ -54,7 +54,7 @@ S4_OUTPUT_PRICE_VECS_FILE = "price_embeddings.parquet"
 
 
 S5_N_NEIGHBORS_PREPARE = 500
-S5_OUTPUT_NEIGHBORS_FILE = "neighbors.parquet"
+S5_OUTPUT_NEIGHBORS_FILE = "api/artifacts/neighbors.parquet"
 
 
 S6_N_NEIGHBORS = 5
@@ -62,7 +62,21 @@ S6_N_NEIGHBOR_SALES = 3
 S6_BATCH_SIZE = 10000
 S6_OUTPUT_FILE = "features_prepped_with_neighbors.csv"
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+def get_device():
+    """Determine best device for PyTorch: CUDA -> MPS -> CPU."""
+    if torch.cuda.is_available():
+        print("Using CUDA (NVIDIA GPU)")
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        print("Using MPS (Apple Silicon GPU)")
+        return "mps"
+    else:
+        print("Using CPU")
+        return "cpu"
+
+
+DEVICE = get_device()
 
 
 def s1_fetch_index_data(url):

@@ -61,9 +61,6 @@ class FeatureBuilder:
         # Number of bids (default to 0 for predictions)
         features["number_of_bids"] = 0
 
-        # Seller popularity (use average as default)
-        features["seller_popularity"] = 0.5
-
         # Get historical sales data from MongoDB
         mongo = get_mongodb_client()
         settings = get_settings()
@@ -96,7 +93,6 @@ class FeatureBuilder:
             features[f"{prefix}_grade_co_BGS"] = sale.get("grade_co_BGS")
             features[f"{prefix}_grade_co_CGC"] = sale.get("grade_co_CGC")
             features[f"{prefix}_grade_co_PSA"] = sale.get("grade_co_PSA")
-            features[f"{prefix}_seller_popularity"] = 0.5  # Default
             features[f"{prefix}_days_ago"] = sale.get("days_ago")
 
         # Adjacent grade sales (below)
@@ -110,7 +106,6 @@ class FeatureBuilder:
             features[f"{prefix}_grade_co_BGS"] = sale.get("grade_co_BGS")
             features[f"{prefix}_grade_co_CGC"] = sale.get("grade_co_CGC")
             features[f"{prefix}_grade_co_PSA"] = sale.get("grade_co_PSA")
-            features[f"{prefix}_seller_popularity"] = 0.5  # Default
             features[f"{prefix}_days_ago"] = sale.get("days_ago")
 
         # Weekly average features (use recent sales average as proxy)
@@ -119,7 +114,6 @@ class FeatureBuilder:
             for weeks in [1, 2, 3, 4]:
                 features[f"avg_price_{weeks}w_ago"] = avg_price
                 features[f"avg_half_grade_{weeks}w_ago"] = features["half_grade"]
-                features[f"avg_seller_popularity_{weeks}w_ago"] = 0.5
                 features[f"avg_grade_co_BGS_{weeks}w_ago"] = features.get(
                     "grade_co_BGS", 0
                 )

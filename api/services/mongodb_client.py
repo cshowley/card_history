@@ -22,10 +22,10 @@ class MongoDBClient:
     def connect(self) -> None:
         """Establish MongoDB connection."""
         settings = get_settings()
-        if not settings.mongo_url:
-            raise ValueError("MONGO_URL environment variable not set")
+        if not settings.mongo_uri:
+            raise ValueError("MONGO_URI environment variable not set")
 
-        self.client = MongoClient(settings.mongo_url)
+        self.client = MongoClient(settings.mongo_uri)
         self.db = self.client[settings.mongo_db_name]
         self._connected = True
         print(f"Connected to MongoDB database: {settings.mongo_db_name}")

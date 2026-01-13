@@ -5,9 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "cupy-cuda13x>=13.6.0",
     "dotenv>=0.9.9",
-    "faiss-gpu-cu12>=1.13.0",
     "fastapi>=0.115.0",
     "ipykernel>=7.1.0",
     "matplotlib>=3.10.7",
@@ -24,4 +22,11 @@ dependencies = [
     "tqdm-multiprocess>=0.0.11",
     "uvicorn>=0.30.0",
     "xgboost>=3.1.2",
+]
+
+[project.optional-dependencies]
+# CUDA dependencies - only install on Linux with NVIDIA GPUs
+cuda = [
+    "cupy-cuda13x>=13.6.0; sys_platform == 'linux'",
+    "faiss-gpu-cu12>=1.13.0; sys_platform == 'linux'",
 ]
