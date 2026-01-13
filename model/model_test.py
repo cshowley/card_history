@@ -407,6 +407,41 @@ def main():
     plt.savefig(plot_path)
     print(f"Saved feature importance plot to {plot_path}")
 
+    # Save trained models for inference API
+    artifacts_dir = "api/artifacts"
+    os.makedirs(artifacts_dir, exist_ok=True)
+
+    print("\nSaving trained models for inference...")
+    model.save_model(os.path.join(artifacts_dir, "model_point.json"))
+    model_lower.save_model(os.path.join(artifacts_dir, "model_lower.json"))
+    model_upper.save_model(os.path.join(artifacts_dir, "model_upper.json"))
+    print(f"  Saved model_point.json")
+    print(f"  Saved model_lower.json")
+    print(f"  Saved model_upper.json")
+
+    # Save model config for API
+    model_config = {
+        "lower_quantile": LOWER_QUANTILE,
+        "upper_quantile": UPPER_QUANTILE,
+        "target_coverage": TARGET_COVERAGE,
+        "best_params": best_params,
+    }
+    config_path = os.path.join(artifacts_dir, "model_config.json")
+    with open(config_path, "w") as f:
+        json.dump(model_config, f, indent=2)
+    print(f"  Saved model_config.json")
+
+    # Copy feature columns to artifacts
+    import shutil
+
+    feature_cols_src = os.path.join(data_dir, "feature_cols.json")
+    feature_cols_dst = os.path.join(artifacts_dir, "feature_cols.json")
+    if os.path.exists(feature_cols_src):
+        shutil.copy(feature_cols_src, feature_cols_dst)
+        print(f"  Copied feature_cols.json")
+
+    print(f"\nAll artifacts saved to {artifacts_dir}/")
+
 
 if __name__ == "__main__":
     main()
