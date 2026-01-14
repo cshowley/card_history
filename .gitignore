@@ -17,12 +17,13 @@ model/configs/*
 *.pth
 *.log
 
-# Ignore all csv files
+# Ignore all data and weights files
 *.csv
 *.parquet
 *.npy
 *.pt
 *.json
+*.pkl
 
 # Ignore .expert files
 /.expert
