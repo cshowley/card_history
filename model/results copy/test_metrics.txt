@@ -1,0 +1,61 @@
+
+Simple Percent Error Percentiles (Baseline):
+count    1.881400e+04
+mean              inf
+std               NaN
+min      1.589339e+01
+10%      7.307857e+02
+20%      4.744236e+04
+30%      9.471929e+04
+40%      1.248601e+05
+50%      1.592254e+05
+60%      2.072492e+05
+70%      2.852191e+05
+80%      4.279961e+05
+90%      7.267664e+05
+max               inf
+
+Test Metrics:
+  RMSE: $0.64
+  MAE:  $0.32
+  MAPE: 17686083524345982.00%
+  R²:   0.7753
+
+Model Percent Error Percentiles:
+count    2.095500e+04
+mean              inf
+std               NaN
+min      3.359527e-04
+10%      6.008382e-01
+20%      1.244541e+00
+30%      1.971996e+00
+40%      2.963752e+00
+50%      4.160734e+00
+60%      5.770743e+00
+70%      8.059584e+00
+80%      1.201706e+01
+90%      2.098335e+01
+max               inf
+
+Top 20 Feature Importances:
+                       feature  importance
+6                 prev_1_price    0.193610
+5                 grade_co_PSA    0.067873
+13                prev_2_price    0.041488
+0                        grade    0.025894
+20                prev_3_price    0.024666
+91          prev_1_below_price    0.023602
+122            index_change_1d    0.017215
+3                 grade_co_CGC    0.015467
+10         prev_1_grade_co_PSA    0.013173
+38         prev_5_grade_co_PSA    0.012589
+127    neighbor_1_sale_1_price    0.012351
+1                   half_grade    0.011087
+124               index_ema_12    0.010730
+69   prev_2_above_grade_co_BGS    0.010508
+2                 grade_co_BGS    0.009564
+61          prev_1_above_price    0.009513
+46            avg_price_2w_ago    0.009334
+41            avg_price_1w_ago    0.009316
+121                index_value    0.008833
+97          prev_2_below_price    0.008686

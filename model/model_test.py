@@ -76,10 +76,6 @@ def main():
 
     print("Predicting on Test set...")
     y_test_pred = model.predict(X_test)
-    y_test = np.exp(y_test)
-    y_test_pred = np.exp(y_test_pred)
-
-    # Metrics
     val_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
     val_mae = mean_absolute_error(y_test, y_test_pred)
     val_mape = mean_absolute_percentage_error(y_test, y_test_pred)

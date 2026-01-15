@@ -1,5 +1,8 @@
 research ideas for model improvement
 
+monotone_constraints
+- attempts to implement this on 01/13 did not work. Implemented monotonic post-processing instead. Would be good to figure this out for the model training step though
+
 feature reduction:
 
 1. brute force

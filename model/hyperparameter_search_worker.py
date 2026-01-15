@@ -2,12 +2,44 @@ import argparse
 import json
 import os
 import platform
-
-import cupy as cp
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from xgboost import XGBRegressor
+
+def weighted_loss(pred, dtrain, penalty_mult=10.0, penalize_overestimation=True):
+    """
+    Custom loss function for XGBoost.
+    """
+    y_true = dtrain
+    y_pred = pred
+
+    residual = y_pred - y_true
+    grad = residual.copy()
+    hess = np.ones_like(residual)
+
+    if penalize_overestimation:
+        mask = residual > 0
+        grad[mask] *= penalty_mult
+        hess[mask] *= penalty_mult
+    else:
+        mask = residual < 0
+        grad[mask] *= penalty_mult
+        hess[mask] *= penalty_mult
+
+    return grad, hess
+
+
+def lower_bound_loss(y_true, y_pred):
+    return weighted_loss(
+        y_pred, y_true, penalty_mult=10.0, penalize_overestimation=True
+    )
+
+
+def upper_bound_loss(y_true, y_pred):
+    return weighted_loss(
+        y_pred, y_true, penalty_mult=10.0, penalize_overestimation=False
+    )
 
 
 def mdape(y_true, y_pred):
@@ -19,6 +51,7 @@ def get_xgb_device(worker_id):
     """Determine best device for XGBoost."""
     try:
         import cupy as cp
+
         cp.cuda.Device(worker_id).use()
         print("Using CUDA (NVIDIA GPU)")
         return f"cuda:{worker_id}"
@@ -36,10 +69,10 @@ def get_xgb_device(worker_id):
 def load_data(data_dir):
     """Load pickled pandas data as numpy arrays."""
     print(f"Loading data from {data_dir}...")
-    X_train = pd.read_pickle(os.path.join(data_dir, "X_train.pkl")).to_numpy()
-    y_train = pd.read_pickle(os.path.join(data_dir, "y_train.pkl")).to_numpy().ravel()
-    X_val = pd.read_pickle(os.path.join(data_dir, "X_val.pkl")).to_numpy()
-    y_val = pd.read_pickle(os.path.join(data_dir, "y_val.pkl")).to_numpy().ravel()
+    X_train = pd.read_parquet(os.path.join(data_dir, "X_train.parquet"))
+    y_train = pd.read_pickle(os.path.join(data_dir, "y_train.pkl"))
+    X_val = pd.read_parquet(os.path.join(data_dir, "X_val.parquet"))
+    y_val = pd.read_pickle(os.path.join(data_dir, "y_val.pkl"))
     return X_train, y_train, X_val, y_val
 
 
@@ -51,15 +84,6 @@ def run_search(worker_id, config_path):
     device = get_xgb_device(worker_id)
 
     X_train, y_train, X_val, y_val = load_data(data_dir)
-
-    X_train = np.nan_to_num(X_train, nan=0.0)
-    X_val = np.nan_to_num(X_val, nan=0.0)
-
-    if "cuda" in device:
-        X_train = cp.array(X_train)
-        y_train = cp.array(y_train)
-        X_val = cp.array(X_val)
-        y_val = cp.array(y_val)
 
     best_score = float("inf")
     best_grid = {}
@@ -76,11 +100,33 @@ def run_search(worker_id, config_path):
         enumerate(param_grid), total=len(param_grid), desc=f"Worker {worker_id}"
     ):
         try:
-            model = XGBRegressor(device=device, n_jobs=-1)
-            model.set_params(**g)
-            model.fit(X_train, y_train, verbose=False)
-            y_val_pred = model.predict(X_val)
-            mape = mdape(np.exp(cp.asnumpy(y_val)), np.exp(cp.asnumpy(y_val_pred)))
+            model_upper = XGBRegressor(device=device, objective=upper_bound_loss, n_jobs=-1)
+            model_upper.set_params(**g)
+            model_upper.fit(X_train, y_train, verbose=False)
+
+            y_val_pred_upper = model_upper.predict(X_val)
+
+            model_lower = XGBRegressor(device=device, objective=lower_bound_loss, n_jobs=-1)
+            model_lower.set_params(**g)
+            model_lower.fit(X_train, y_train, verbose=False)
+
+            y_val_pred_lower = model_upper.predict(X_val)
+
+            y_val_pred = (y_val_pred_upper + y_val_pred_lower) / 2.0
+
+            def to_cpu_numpy(x):
+                if isinstance(x, (pd.DataFrame, pd.Series)):
+                    return x.to_numpy()
+                if hasattr(x, "get"):
+                    return x.get()
+                if hasattr(x, "to_numpy"):
+                    return x.to_numpy()
+                return np.array(x)
+
+            y_val_np = to_cpu_numpy(y_val)
+            y_val_pred_np = to_cpu_numpy(y_val_pred)
+
+            mape = mdape(np.exp(y_val_np), np.exp(y_val_pred_np))
 
             if mape < best_score:
                 best_score = mape

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-FEATURES_PREPPED_FILE = "features_prepped_with_neighbors.csv"
+FEATURES_PREPPED_FILE = "historical_data.parquet"
 TRAIN_TEST_SPLIT = 0.8
 VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
@@ -30,38 +30,20 @@ PARAM_RANGES = {
 }
 
 
-def load_and_prep_data():
-    print("Loading data...")
-    if not os.path.exists(FEATURES_PREPPED_FILE):
-        if os.path.exists(f"../{FEATURES_PREPPED_FILE}"):
-            df = pd.read_csv(f"../{FEATURES_PREPPED_FILE}")
-        else:
-            raise FileNotFoundError(f"Could not find {FEATURES_PREPPED_FILE}")
-    else:
-        df = pd.read_csv(FEATURES_PREPPED_FILE)
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.sort_values(by="date")
-    df = df[df["date"] >= START_DATE]
-
-    feature_cols = [
-        col
-        for col in df.columns
-        if col not in ["gemrate_id", "date", "price"] and col not in BAD_FEATURES
-    ]
+def load_and_prep_data(df, feature_cols):
     train_df = df.iloc[: int(len(df) * TRAIN_TEST_SPLIT)]
     test_df = df.iloc[int(len(df) * TRAIN_TEST_SPLIT) :]
     val_df = test_df.iloc[: int(len(test_df) * VAL_TEST_SPLIT)]
     test_df = test_df.iloc[int(len(test_df) * VAL_TEST_SPLIT) :]
 
-    X_train = train_df[feature_cols].copy()
-    y_train = train_df["price"].copy()
+    X_train = train_df[feature_cols]
+    y_train = train_df["price"]
 
-    X_val = val_df[feature_cols].copy()
-    y_val = val_df["price"].copy()
+    X_val = val_df[feature_cols]
+    y_val = val_df["price"]
 
-    X_test = test_df[feature_cols].copy()
-    y_test = test_df["price"].copy()
+    X_test = test_df[feature_cols]
+    y_test = test_df["price"]
 
     print(f"Training set: {X_train.shape[0]} samples")
     print(f"Validation set: {X_val.shape[0]} samples")
@@ -71,11 +53,11 @@ def load_and_prep_data():
     os.makedirs(data_dir, exist_ok=True)
 
     print("Saving datasets...")
-    X_train.to_pickle(f"{data_dir}/X_train.pkl")
+    X_train.to_parquet(f"{data_dir}/X_train.parquet")
     y_train.to_pickle(f"{data_dir}/y_train.pkl")
-    X_val.to_pickle(f"{data_dir}/X_val.pkl")
+    X_val.to_parquet(f"{data_dir}/X_val.parquet")
     y_val.to_pickle(f"{data_dir}/y_val.pkl")
-    X_test.to_pickle(f"{data_dir}/X_test.pkl")
+    X_test.to_parquet(f"{data_dir}/X_test.parquet")
     y_test.to_pickle(f"{data_dir}/y_test.pkl")
 
     with open(f"{data_dir}/feature_cols.json", "w") as f:
@@ -104,14 +86,16 @@ def get_random_params():
     params["gamma"] = log_uniform(*PARAM_RANGES["gamma"])
     params["reg_alpha"] = log_uniform(*PARAM_RANGES["reg_alpha"])
     params["reg_lambda"] = log_uniform(*PARAM_RANGES["reg_lambda"])
-
     return params
 
 
-def split_grid_and_run_workers():
+def split_grid_and_run_workers(feature_cols):
     print(f"Generating {N_TRIALS} random parameter combinations...")
 
     random_search_grid = [get_random_params() for _ in range(N_TRIALS)]
+
+    # for params in random_search_grid:
+    #     params["monotone_constraints"] = {"grade": 1, "half_grade": 1}
 
     chunk_size = int(np.ceil(N_TRIALS / N_WORKERS))
     chunks = [
@@ -131,7 +115,7 @@ def split_grid_and_run_workers():
         config_path = f"{config_dir}/grid_chunk_{i}.json"
         with open(config_path, "w") as f:
             json.dump(chunk, f)
-        
+
         cmd = [
             sys.executable,
             "model/hyperparameter_search_worker.py",
@@ -152,5 +136,17 @@ def split_grid_and_run_workers():
 
 
 if __name__ == "__main__":
-    load_and_prep_data()
-    split_grid_and_run_workers()
+    print("Loading data...")
+    df = pd.read_parquet(FEATURES_PREPPED_FILE)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.sort_values(by="date")
+    df = df.loc[df["date"] >= START_DATE]
+    df = df.loc[df["grade"] > 6]
+
+    feature_cols = [
+        col
+        for col in df.columns
+        if col not in ["gemrate_id", "date", "price"] and col not in BAD_FEATURES
+    ]
+    load_and_prep_data(df, feature_cols)
+    split_grid_and_run_workers(feature_cols)

@@ -3,21 +3,20 @@
 
 # Ignore virtual environment
 .venv/
-
+__pycache__
 model/data/*
 model/results/*
 model/configs/*
 model/__pycache__
 
-# Ignore model files
+
 *.pth
 *.log
-
-# Ignore all csv files
 *.csv
 *.parquet
 *.npy
 *.pt
+*.json
 
 # Ignore .expert files
 /.expert
