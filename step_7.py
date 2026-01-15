@@ -122,7 +122,6 @@ def train_model():
     best_params = get_best_params()
 
     models_config = [
-        {"name": "Normal", "file": constants.S7_OUTPUT_MODEL_FILE, "objective": None},
         {
             "name": "Lower",
             "file": constants.S7_OUTPUT_MODEL_FILE.replace(".json", "_lower.json"),

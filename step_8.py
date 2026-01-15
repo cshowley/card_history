@@ -58,25 +58,19 @@ def run_step_8():
     print("Loading models on separate GPUs...")
     models = {}
 
-    print(f"Loading Base model from {model_file} on cuda:0...")
-    model_base = xgb.XGBRegressor()
-    model_base.load_model(model_file)
-    model_base.set_params(device="cuda:0")
-    models["prediction"] = (model_base, "cuda:0")
-
     model_lower_file = model_file.replace(".json", "_lower.json")
     print(f"Loading Lower model from {model_lower_file} on cuda:1...")
     model_lower = xgb.XGBRegressor()
     model_lower.load_model(model_lower_file)
-    model_lower.set_params(device="cuda:1")
-    models["prediction_lower"] = (model_lower, "cuda:1")
+    model_lower.set_params(device="cuda:0")
+    models["prediction_lower"] = (model_lower, "cuda:0")
 
     model_upper_file = model_file.replace(".json", "_upper.json")
     print(f"Loading Upper model from {model_upper_file} on cuda:2...")
     model_upper = xgb.XGBRegressor()
     model_upper.load_model(model_upper_file)
-    model_upper.set_params(device="cuda:2")
-    models["prediction_upper"] = (model_upper, "cuda:2")
+    model_upper.set_params(device="cuda:1")
+    models["prediction_upper"] = (model_upper, "cuda:1")
 
     print(f"Processing {input_file} in chunks...")
 

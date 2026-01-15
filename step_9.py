@@ -23,7 +23,7 @@ def run_step_9():
     df = df.sort_values(by=sort_cols, ascending=True).reset_index(drop=True)
 
     group_cols = ["gemrate_id", "grading_company"]
-    target_cols = ["prediction", "prediction_lower", "prediction_upper"]
+    target_cols = ["prediction_lower", "prediction_upper"]
 
     target_cols = [c for c in target_cols if c in df.columns]
     total_groups = len(df.groupby(group_cols))
@@ -35,11 +35,22 @@ def run_step_9():
             .apply(lambda x: np.any(x.values[:-1] > x.values[1:]))
             .sum()
         )
-        print(f"    Found {violation_counts} / {total_groups} groups violating monotonicity.")
+        print(
+            f"    Found {violation_counts} / {total_groups} groups violating monotonicity."
+        )
 
         df[col] = df.groupby(group_cols)[col].transform(lambda x: np.sort(x.values))
 
     print("Saving sorted predictions to {output_file}...")
+
+    if "prediction_lower" in df.columns and "prediction_upper" in df.columns:
+        print("Calculating average prediction from lower and upper bounds...")
+        lower = np.minimum(df["prediction_lower"], df["prediction_upper"])
+        upper = np.maximum(df["prediction_lower"], df["prediction_upper"])
+        df["prediction_lower"] = lower
+        df["prediction_upper"] = upper
+        df["prediction"] = (df["prediction_lower"] + df["prediction_upper"]) / 2
+
     df.to_parquet(output_file)
 
     print("Running QA Spot Check...")
@@ -79,9 +90,7 @@ def run_step_9():
         "price",
         "date",
     ]
-    recent_sales = recent_sales[
-        [c for c in cols_to_keep if c in recent_sales.columns]
-    ]
+    recent_sales = recent_sales[[c for c in cols_to_keep if c in recent_sales.columns]]
     recent_sales = recent_sales.rename(
         columns={"price": "recent_price_log", "date": "recent_date"}
     )
@@ -110,9 +119,7 @@ def run_step_9():
         "prediction",
         "recent_price",
     ]
-    spot_df = merged[spot_cols].rename(
-        columns={"prediction": "predicted_price"}
-    )
+    spot_df = merged[spot_cols].rename(columns={"prediction": "predicted_price"})
 
     spot_file = "spot_check.parquet"
     print(f"Writing {len(spot_df)} spot check rows to {spot_file}...")
@@ -120,9 +127,7 @@ def run_step_9():
     spot_df = spot_df.loc[spot_df["days_ago"] <= 30]
     outliers = spot_df[(spot_df["ratio"] > 1.2) | (spot_df["ratio"] < 0.8)]
     count = len(outliers)
-    print(
-        f"Found {count} outliers (prediction / recent_price > 1.2 or < 0.8)"
-    )
+    print(f"Found {count} outliers (prediction / recent_price > 1.2 or < 0.8)")
 
     print("Done.")
 
