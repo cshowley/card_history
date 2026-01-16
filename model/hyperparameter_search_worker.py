@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import platform
+import cupy as cp
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -85,6 +86,12 @@ def run_search(worker_id, config_path):
 
     X_train, y_train, X_val, y_val = load_data(data_dir)
 
+    if "cuda" in device:
+        X_train = cp.array(X_train)
+        y_train = cp.array(y_train)
+        X_val = cp.array(X_val)
+        y_val = cp.array(y_val)
+
     best_score = float("inf")
     best_grid = {}
 
@@ -123,10 +130,8 @@ def run_search(worker_id, config_path):
                     return x.to_numpy()
                 return np.array(x)
 
-            y_val_np = to_cpu_numpy(y_val)
-            y_val_pred_np = to_cpu_numpy(y_val_pred)
-
-            mape = mdape(np.exp(y_val_np), np.exp(y_val_pred_np))
+            mape = mdape(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
+            # mape = mdape(np.exp(y_val_np), np.exp(y_val_pred_np))
 
             if mape < best_score:
                 best_score = mape

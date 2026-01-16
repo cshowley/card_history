@@ -111,7 +111,8 @@ def run_step_8():
             col_name = future_map[future]
             try:
                 preds = future.result()
-                batch_results[col_name] = np.exp(preds)
+                batch_results[col_name] = preds
+                # batch_results[col_name] = np.exp(preds)
             except Exception as e:
                 print(f"Prediction failed for {col_name}: {e}")
                 raise e

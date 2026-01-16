@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-FEATURES_PREPPED_FILE = "historical_data.parquet"
+FEATURES_PREPPED_FILE = "historical_data_with_neighbors.parquet"
 TRAIN_TEST_SPLIT = 0.8
 VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
@@ -18,7 +18,7 @@ N_WORKERS = 2
 N_TRIALS = 4000
 
 PARAM_RANGES = {
-    "max_depth": (3, 15),
+    "max_depth": (19, 25),
     "learning_rate": (0.01, 0.2),
     "n_estimators": (100, 2000),
     "min_child_weight": (1, 7),

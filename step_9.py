@@ -92,8 +92,11 @@ def run_step_9():
     ]
     recent_sales = recent_sales[[c for c in cols_to_keep if c in recent_sales.columns]]
     recent_sales = recent_sales.rename(
-        columns={"price": "recent_price_log", "date": "recent_date"}
+        columns={"price": "recent_price", "date": "recent_date"}
     )
+    # recent_sales = recent_sales.rename(
+    #     columns={"price": "recent_price_log", "date": "recent_date"}
+    # )
 
     merged = pd.merge(
         recent_sales,
@@ -102,7 +105,7 @@ def run_step_9():
         how="inner",
     )
 
-    merged["recent_price"] = np.exp(merged["recent_price_log"])
+    # merged["recent_price"] = np.exp(merged["recent_price_log"])
 
     merged["ratio"] = merged["prediction"] / merged["recent_price"]
 

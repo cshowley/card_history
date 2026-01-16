@@ -7,12 +7,14 @@ from tqdm import tqdm
 
 import constants
 
+
 def extract_numbers(text):
     text = text.replace(",", "")
-    pattern = r'-?(?:\d+(?:\.\d*)?|\.\d+)'
+    pattern = r"-?(?:\d+(?:\.\d*)?|\.\d+)"
     numbers = re.findall(pattern, text)
     return [float(num) for num in numbers][0]
-    
+
+
 def s3_clean_grade(val):
     s = str(val).lower().strip().replace("g", "").replace("_", ".")
     if s in ["nan", "none", "", "0", "auth"]:
@@ -53,12 +55,11 @@ def s3_group_currencies(val):
 def s3_calculate_seller_popularity(df):
     df = df.copy()
     total_sales = len(df)
-    seller_counts = df['seller'].value_counts()
-    df['seller_popularity'] = df['seller'].map(seller_counts) / total_sales
-    df['seller_popularity'] = df['seller_popularity'].fillna(0)
-    df = df.drop(columns=['seller'])
+    seller_counts = df["seller"].value_counts()
+    df["seller_popularity"] = df["seller"].map(seller_counts) / total_sales
+    df["seller_popularity"] = df["seller_popularity"].fillna(0)
+    df = df.drop(columns=["seller"])
     return df
-
 
 
 def s3_create_previous_sale_features(df, n_sales_back):
@@ -80,24 +81,29 @@ def s3_create_previous_sale_features(df, n_sales_back):
     feature_cols = [col for col in feature_cols if col in df.columns]
     new_columns = []
 
+    new_data = {}
+
     for n in range(1, n_sales_back + 1):
         prefix = f"prev_{n}"
         for col in feature_cols:
             new_col = f"{prefix}_{col}"
-            df[new_col] = df.groupby(["gemrate_id", "grade"])[col].shift(n)
+            new_data[new_col] = df.groupby(["gemrate_id", "grade"])[col].shift(n)
             new_columns.append(new_col)
 
         days_col = f"{prefix}_days_ago"
         prev_date = df.groupby(["gemrate_id", "grade"])["date"].shift(n)
-        df[days_col] = (df["date"] - prev_date).dt.days
+        new_data[days_col] = (df["date"] - prev_date).dt.days
         new_columns.append(days_col)
 
         idx_col = f"{prefix}_index_price"
         if index_series is not None:
-            df[idx_col] = prev_date.map(index_series)
+            new_data[idx_col] = prev_date.map(index_series)
         else:
-            df[idx_col] = np.nan
+            new_data[idx_col] = np.nan
         new_columns.append(idx_col)
+
+    if new_data:
+        df = pd.concat([df, pd.DataFrame(new_data, index=df.index)], axis=1)
 
     return df, new_columns
 
@@ -127,23 +133,63 @@ def s3_create_lookback_features(df, weeks_back_list):
     new_columns = []
 
     for w in weeks_back_list:
-        shifted = weekly_agg.copy()
-        shifted["join_week"] = shifted["week_start"] + pd.Timedelta(weeks=w)
+        if w > 0:
+            shifted = weekly_agg.copy()
+            shifted["join_week"] = shifted["week_start"] + pd.Timedelta(weeks=w)
 
-        suffix = f"_{w}w_ago"
-        cols_to_add = list(base_rename.values())
-        rename_dict = {c: f"{c}{suffix}" for c in cols_to_add}
-        shifted = shifted.rename(columns=rename_dict)
+            suffix = f"_{w}w_ago"
+            cols_to_add = list(base_rename.values())
+            rename_dict = {c: f"{c}{suffix}" for c in cols_to_add}
+            shifted = shifted.rename(columns=rename_dict)
 
-        final_cols = list(rename_dict.values())
-        new_columns.extend(final_cols)
+            final_cols = list(rename_dict.values())
+            new_columns.extend(final_cols)
 
-        result_df = result_df.merge(
-            shifted[["gemrate_id", "grade", "join_week"] + final_cols],
-            left_on=["gemrate_id", "grade", "week_start"],
-            right_on=["gemrate_id", "grade", "join_week"],
-            how="left",
-        ).drop(columns=["join_week"])
+            result_df = result_df.merge(
+                shifted[["gemrate_id", "grade", "join_week"] + final_cols],
+                left_on=["gemrate_id", "grade", "week_start"],
+                right_on=["gemrate_id", "grade", "join_week"],
+                how="left",
+            ).drop(columns=["join_week"])
+        else:
+
+            suffix = f"_{w}w_ago"
+
+            daily_agg = (
+                df.groupby(["gemrate_id", "grade", "week_start", "date"])[agg_cols]
+                .agg(["sum", "count"])
+                .reset_index()
+            )
+
+            daily_agg.columns = ["gemrate_id", "grade", "week_start", "date"] + [
+                f"{c}_{stat}" for c in agg_cols for stat in ["sum", "count"]
+            ]
+
+            daily_agg = daily_agg.sort_values(["gemrate_id", "grade", "date"])
+
+            grp = daily_agg.groupby(["gemrate_id", "grade", "week_start"])
+
+            for col in agg_cols:
+                sum_col = f"{col}_sum"
+                count_col = f"{col}_count"
+
+                daily_agg[f"cum_{sum_col}"] = grp[sum_col].cumsum().shift(1)
+                daily_agg[f"cum_{count_col}"] = grp[count_col].cumsum().shift(1)
+
+                avg_col_name = f"avg_{col}{suffix}"
+                daily_agg[avg_col_name] = (
+                    daily_agg[f"cum_{sum_col}"] / daily_agg[f"cum_{count_col}"]
+                )
+
+                new_columns.append(avg_col_name)
+
+            cols_to_merge = ["gemrate_id", "grade", "date"] + [
+                f"avg_{c}{suffix}" for c in agg_cols
+            ]
+
+            result_df = result_df.merge(
+                daily_agg[cols_to_merge], on=["gemrate_id", "grade", "date"], how="left"
+            )
 
     return result_df, new_columns
 
@@ -164,6 +210,8 @@ def s3_create_adjacent_grade_features(df, n_sales_back):
 
     ref = df[["gemrate_id", "grade", "date"] + feature_cols].copy()
     ref["_sale_idx"] = ref.groupby(["gemrate_id", "grade"]).cumcount()
+
+    new_data = {}
 
     for direction, grade_offset in [("above", 1), ("below", -1)]:
         target_grade = (df["grade"] + grade_offset).clip(lower=1.0, upper=11.0)
@@ -210,13 +258,16 @@ def s3_create_adjacent_grade_features(df, n_sales_back):
 
             for col in feature_cols:
                 new_col = f"{suffix}_{col}"
-                df[new_col] = with_feats[col]
+                new_data[new_col] = with_feats[col]
                 new_columns.append(new_col)
 
-            df[f"{suffix}_days_ago"] = (
+            new_data[f"{suffix}_days_ago"] = (
                 with_feats["date"] - with_feats["prev_date"]
             ).dt.days
             new_columns.append(f"{suffix}_days_ago")
+
+    if new_data:
+        df = pd.concat([df, pd.DataFrame(new_data, index=df.index)], axis=1)
 
     return df, new_columns
 
@@ -262,15 +313,10 @@ def s3_load_and_clean_ebay(filepath):
     )
 
     currency_groups = (
-            df["item_data.price"].astype(str).str.split().str[0].apply(s3_group_currencies)
-        )
-    df = df.loc[currency_groups.isin(["$ (No Country Code)", "US"])]
-    df["price"] = (
-        df["item_data.price"]
-        .astype(str)
-        .apply(extract_numbers)
-        .astype(float)
+        df["item_data.price"].astype(str).str.split().str[0].apply(s3_group_currencies)
     )
+    df = df.loc[currency_groups.isin(["$ (No Country Code)", "US"])]
+    df["price"] = df["item_data.price"].astype(str).apply(extract_numbers).astype(float)
     df = df[df["item_data.number_of_bids"] >= constants.S3_NUMBER_OF_BIDS_FILTER]
     df["seller"] = df["item_data.seller_name"]
     print(f"  → eBay cleaned: {len(df)} rows")
@@ -356,7 +402,7 @@ def run_step_3():
         "grade",
         "half_grade",
         "grading_company",
-        "seller"
+        "seller",
     ]
 
     ebay_subset = ebay_df[[c for c in common_cols if c in ebay_df.columns]].copy()
@@ -367,7 +413,7 @@ def run_step_3():
     df = pd.concat([ebay_subset, pwcc_subset], ignore_index=True)
     df = df.loc[df["grade"] >= constants.S3_LOWEST_GRADE]
     df = df.loc[df["grade"] <= constants.S3_HIGHEST_GRADE]
-    df["price"] = np.log(df["price"].clip(lower=0.01))
+    df["price"] = df["price"].clip(lower=0.01)
     df = df.reset_index(drop=True)
     df = s3_calculate_seller_popularity(df)
     df = df.loc[df["seller_popularity"] >= 0.01]
@@ -376,7 +422,14 @@ def run_step_3():
     dummies = pd.get_dummies(df["grading_company"], prefix="grade_co", dtype=int)
     df = pd.concat([df, dummies], axis=1)
 
-    columns_to_keep = ["gemrate_id", "date", "price", "grade", "half_grade", "seller_popularity"]
+    columns_to_keep = [
+        "gemrate_id",
+        "date",
+        "price",
+        "grade",
+        "half_grade",
+        "seller_popularity",
+    ]
 
     columns_to_keep.extend(dummies.columns.tolist())
     df = df[columns_to_keep].copy()

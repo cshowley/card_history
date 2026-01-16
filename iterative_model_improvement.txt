@@ -1,5 +1,7 @@
 research ideas for model improvement
 
+year as a feature
+
 monotone_constraints
 - attempts to implement this on 01/13 did not work. Implemented monotonic post-processing instead. Would be good to figure this out for the model training step though
 
