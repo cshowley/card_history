@@ -1,5 +1,5 @@
 import pandas as pd
-from pymongo import MongoClient
+from pymongo import MongoClient, ReplaceOne
 import constants
 from tqdm import tqdm
 
@@ -30,21 +30,32 @@ def run_step_10():
     print(f"Deleting all documents in '{collection_name}'...")
     collection.delete_many({})
 
-    print("Creating index on 'gemrate_id'...")
-    collection.create_index("gemrate_id")
-
     batch_size = constants.S10_INSERTION_BATCH_SIZE
-    print(f"Inserting into MongoDB '{collection_name}' in batches of {batch_size}...")
+    print(f"Upserting into MongoDB '{collection_name}' in batches of {batch_size}...")
 
     inserted_count = 0
 
     for i in tqdm(range(0, len(df), batch_size), desc="Uploading Batches"):
         batch = df.iloc[i : i + batch_size].copy()
         records = batch.to_dict("records")
-        if records:
-            collection.insert_many(records)
-            inserted_count += len(records)
 
+        operations = []
+        for record in records:
+            filter_query = {
+                "gemrate_id": record["gemrate_id"],
+                "grading_company": record["grading_company"],
+                "grade": record["grade"],
+                "half_grade": record["half_grade"],
+            }
+            operations.append(ReplaceOne(filter_query, record, upsert=True))
+
+        if operations:
+            collection.bulk_write(operations)
+            inserted_count += len(operations)
+
+    print("Creating index on 'gemrate_id'...")
+    collection.create_index("gemrate_id")
+    
     print(
         f"Step 10 Complete. Uploaded {inserted_count} documents to collection '{collection_name}'."
     )

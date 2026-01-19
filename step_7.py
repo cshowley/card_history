@@ -9,31 +9,8 @@ import xgboost as xgb
 import constants
 
 
-def get_best_params():
-    """Finds the best hyperparameters from the model/results directory."""
-    results_dir = "model/results"
-    result_files = glob.glob(os.path.join(results_dir, "worker_*_best.json"))
-
-    if not result_files:
-        raise FileNotFoundError(f"No result files found in {results_dir}")
-
-    best_mape = float("inf")
-    best_params = None
-    best_worker = None
-
-    for file in result_files:
-        with open(file, "r") as f:
-            data = json.load(f)
-            if "best_mape" in data and "best_params" in data:
-                if data["best_mape"] < best_mape:
-                    best_mape = data["best_mape"]
-                    best_params = data["best_params"]
-                    best_worker = data.get("worker_id", "unknown")
-    if best_params is None:
-        raise ValueError("Could not find any valid best parameters in result files.")
-
-    print(f"Best params found from worker {best_worker} with MdAPE: {best_mape:.4f}")
-    return best_params
+LOWER_QUANTILE = 0.05
+UPPER_QUANTILE = 0.95
 
 
 def weighted_loss(pred, dtrain, penalty_mult=10.0, penalize_overestimation=True):
@@ -71,6 +48,34 @@ def upper_bound_loss(y_true, y_pred):
     )
 
 
+
+def get_best_params():
+    """Finds the best hyperparameters from the model/results directory."""
+    results_dir = "model/results"
+    result_files = glob.glob(os.path.join(results_dir, "worker_*_best.json"))
+
+    if not result_files:
+        raise FileNotFoundError(f"No result files found in {results_dir}")
+
+    best_mgd = float("inf")
+    best_params = None
+    best_worker = None
+
+    for file in result_files:
+        with open(file, "r") as f:
+            data = json.load(f)
+            if "best_mgd" in data and "best_params" in data:
+                if data["best_mgd"] < best_mgd:
+                    best_mgd = data["best_mgd"]
+                    best_params = data["best_params"]
+                    best_worker = data.get("worker_id", "unknown")
+    if best_params is None:
+        raise ValueError("Could not find any valid best parameters in result files.")
+
+    print(f"Best params found from worker {best_worker} with MGD: {best_mgd:.4f}")
+    return best_params
+
+
 def train_worker(config, best_params, input_file, gpu_id):
     """
     Worker function to train a single XGBoost model on a specific GPU.
@@ -93,14 +98,9 @@ def train_worker(config, best_params, input_file, gpu_id):
 
         print(f"[{config['name']}] Training on {len(X)} samples...")
 
-        worker_params = best_params.copy()
+        worker_params = {k: v for k, v in best_params.items() if k != "objective"}
         worker_params["device"] = f"cuda:{gpu_id}"
-
-        if config["objective"] is not None:
-            model = xgb.XGBRegressor(objective=config["objective"])
-        else:
-            model = xgb.XGBRegressor()
-
+        model = xgb.XGBRegressor(objective=config["objective"])
         model.set_params(**worker_params)
         model.fit(X, y)
 
@@ -123,14 +123,19 @@ def train_model():
 
     models_config = [
         {
+            "name": "Gamma",
+            "file": constants.S7_OUTPUT_MODEL_FILE.replace(".json", "_gamma.json"),
+            "objective": "reg:gamma",
+        },
+        {
             "name": "Lower",
             "file": constants.S7_OUTPUT_MODEL_FILE.replace(".json", "_lower.json"),
-            "objective": lower_bound_loss,
+            "objective": lower_bound_loss
         },
         {
             "name": "Upper",
             "file": constants.S7_OUTPUT_MODEL_FILE.replace(".json", "_upper.json"),
-            "objective": upper_bound_loss,
+            "objective": upper_bound_loss
         },
     ]
 

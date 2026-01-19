@@ -15,12 +15,12 @@ VAL_TEST_SPLIT = 0.5
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
 BAD_FEATURES = []
 N_WORKERS = 2
-N_TRIALS = 4000
+N_TRIALS = 8000
 
 PARAM_RANGES = {
     "max_depth": (19, 25),
     "learning_rate": (0.01, 0.2),
-    "n_estimators": (100, 2000),
+    "n_estimators": 2000,
     "min_child_weight": (1, 7),
     "subsample": (0.6, 0.95),
     "colsample_bytree": (0.6, 0.95),
@@ -68,7 +68,7 @@ def get_random_params():
     params = {}
 
     params["max_depth"] = random.randint(*PARAM_RANGES["max_depth"])
-    params["n_estimators"] = random.randint(*PARAM_RANGES["n_estimators"])
+    params["n_estimators"] = PARAM_RANGES["n_estimators"]
     params["min_child_weight"] = random.randint(*PARAM_RANGES["min_child_weight"])
 
     params["subsample"] = random.uniform(*PARAM_RANGES["subsample"])

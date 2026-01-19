@@ -59,18 +59,25 @@ def run_step_8():
     models = {}
 
     model_lower_file = model_file.replace(".json", "_lower.json")
-    print(f"Loading Lower model from {model_lower_file} on cuda:1...")
+    print(f"Loading Lower model from {model_lower_file} on cuda:0...")
     model_lower = xgb.XGBRegressor()
     model_lower.load_model(model_lower_file)
     model_lower.set_params(device="cuda:0")
     models["prediction_lower"] = (model_lower, "cuda:0")
 
     model_upper_file = model_file.replace(".json", "_upper.json")
-    print(f"Loading Upper model from {model_upper_file} on cuda:2...")
+    print(f"Loading Upper model from {model_upper_file} on cuda:1...")
     model_upper = xgb.XGBRegressor()
     model_upper.load_model(model_upper_file)
     model_upper.set_params(device="cuda:1")
     models["prediction_upper"] = (model_upper, "cuda:1")
+
+    model_gamma_file = model_file.replace(".json", "_gamma.json")
+    print(f"Loading Gamma model from {model_gamma_file} on cuda:2...")
+    model_gamma = xgb.XGBRegressor()
+    model_gamma.load_model(model_gamma_file)
+    model_gamma.set_params(device="cuda:2")
+    models["prediction"] = (model_gamma, "cuda:2")
 
     print(f"Processing {input_file} in chunks...")
 
@@ -112,7 +119,6 @@ def run_step_8():
             try:
                 preds = future.result()
                 batch_results[col_name] = preds
-                # batch_results[col_name] = np.exp(preds)
             except Exception as e:
                 print(f"Prediction failed for {col_name}: {e}")
                 raise e

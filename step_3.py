@@ -416,7 +416,7 @@ def run_step_3():
     df["price"] = df["price"].clip(lower=0.01)
     df = df.reset_index(drop=True)
     df = s3_calculate_seller_popularity(df)
-    df = df.loc[df["seller_popularity"] >= 0.01]
+    # df = df.loc[df["seller_popularity"] >= 0.01]
     df = pd.concat([df, today], ignore_index=True)
     print(f"  → Total merged: {len(df)} rows")
     dummies = pd.get_dummies(df["grading_company"], prefix="grade_co", dtype=int)

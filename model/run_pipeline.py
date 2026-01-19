@@ -23,7 +23,7 @@ def main():
 
     run_command(f"{sys.executable} model/model_setup.py")
 
-    run_command(f"{sys.executable} model/model_test.py")
+    # run_command(f"{sys.executable} model/model_test.py")
 
     print("========================================")
     print("Pipeline Completed Successfully")

@@ -6,7 +6,9 @@ import cupy as cp
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from xgboost import XGBRegressor
+import xgboost
+from sklearn.metrics import mean_squared_error
+
 
 def weighted_loss(pred, dtrain, penalty_mult=10.0, penalize_overestimation=True):
     """
@@ -107,19 +109,22 @@ def run_search(worker_id, config_path):
         enumerate(param_grid), total=len(param_grid), desc=f"Worker {worker_id}"
     ):
         try:
-            model_upper = XGBRegressor(device=device, objective=upper_bound_loss, n_jobs=-1)
-            model_upper.set_params(**g)
-            model_upper.fit(X_train, y_train, verbose=False)
-
-            y_val_pred_upper = model_upper.predict(X_val)
-
-            model_lower = XGBRegressor(device=device, objective=lower_bound_loss, n_jobs=-1)
-            model_lower.set_params(**g)
-            model_lower.fit(X_train, y_train, verbose=False)
-
-            y_val_pred_lower = model_upper.predict(X_val)
-
-            y_val_pred = (y_val_pred_upper + y_val_pred_lower) / 2.0
+            es = xgboost.callback.EarlyStopping(
+                rounds=10,
+                min_delta=1e-3,
+                save_best=True,
+                maximize=False,
+                data_name="validation_0"
+            )
+            model = xgboost.XGBRegressor(
+                device=device,
+                objective='reg:squarederror',
+                callbacks=[es],
+                n_jobs=-1
+            )
+            model.set_params(**g)
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            y_val_pred = model.predict(X_val)
 
             def to_cpu_numpy(x):
                 if isinstance(x, (pd.DataFrame, pd.Series)):
@@ -130,18 +135,24 @@ def run_search(worker_id, config_path):
                     return x.to_numpy()
                 return np.array(x)
 
-            mape = mdape(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
-            # mape = mdape(np.exp(y_val_np), np.exp(y_val_pred_np))
+            mse_result = mean_squared_error(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
+            mdape_result = mdape(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
+            best_n_estimators = model.best_iteration + 1
+            best_grid["n_estimators"] = best_n_estimators
 
-            if mape < best_score:
-                best_score = mape
+            if mse_result < best_score:
+                best_score = mse_result
                 best_grid = g
                 print(
-                    f"\nWorker {worker_id}: New best MdAPE: {best_score:.2%} at iter {i}"
+                    f"\nWorker {worker_id}: New best MdAPE: {mdape_result:.2%} at iter {i}. n_estimators=#{best_n_estimators}"
+                )
+                print(
+                    f"\nWorker {worker_id}: New best MSE: {mse_result} at iter {i}"
                 )
 
                 result_data = {
-                    "best_mape": best_score,
+                    "best_mse": mse_result,
+                    "best_mdape": mdape_result,
                     "best_params": best_grid,
                     "worker_id": worker_id,
                 }
@@ -152,7 +163,7 @@ def run_search(worker_id, config_path):
             print(f"\nWorker {worker_id}: Error with params {g}: {e}")
             continue
 
-    print(f"\nWorker {worker_id}: Finished. Best MdAPE: {best_score:.2%}")
+    print(f"\nWorker {worker_id}: Finished. Best MGD: {best_score:.2%}")
 
 
 if __name__ == "__main__":
