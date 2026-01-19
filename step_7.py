@@ -116,7 +116,7 @@ def train_worker(config, best_params, input_file, gpu_id):
 def train_model():
     """Trains the XGBoost models in parallel using multiprocessing."""
     print("Step 7: Training XGBoost Models Parallelly")
-    input_file = constants.S3_HISTORICAL_DATA_FILE.replace(
+    input_file = constants.S2_HISTORICAL_DATA_FILE.replace(
         ".parquet", "_with_neighbors.parquet"
     )
     best_params = get_best_params()

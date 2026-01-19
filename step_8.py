@@ -45,13 +45,19 @@ def run_step_8():
     print("Starting Step 8: Inference on Today's Data Parallelly...")
 
     model_file = constants.S7_OUTPUT_MODEL_FILE
-    input_file = constants.S3_TODAY_DATA_FILE.replace(
+    input_file = constants.S2_TODAY_DATA_FILE.replace(
         ".parquet", "_with_neighbors.parquet"
     )
     output_file = constants.S8_PREDICTIONS_FILE
 
-    if not os.path.exists(model_file):
-        raise FileNotFoundError(f"Model file not found: {model_file}")
+    # Check that both model files exist
+    model_lower_file = model_file.replace(".json", "_lower.json")
+    model_upper_file = model_file.replace(".json", "_upper.json")
+    
+    if not os.path.exists(model_lower_file):
+        raise FileNotFoundError(f"Lower model file not found: {model_lower_file}")
+    if not os.path.exists(model_upper_file):
+        raise FileNotFoundError(f"Upper model file not found: {model_upper_file}")
     if not os.path.exists(input_file):
         raise FileNotFoundError(f"Input file not found: {input_file}")
 

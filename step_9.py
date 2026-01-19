@@ -55,7 +55,7 @@ def run_step_9():
 
     print("Running QA Spot Check...")
 
-    hist_file = constants.S3_HISTORICAL_DATA_FILE
+    hist_file = constants.S2_HISTORICAL_DATA_FILE
 
     print(f"Loading historical data from {hist_file}...")
     hist_df = pd.read_parquet(hist_file)

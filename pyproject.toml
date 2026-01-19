@@ -5,9 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "cupy-cuda13x>=13.6.0",
+    "cupy-cuda13x>=13.6.0; sys_platform == 'linux'",
     "dotenv>=0.9.9",
-    "faiss-gpu-cu12>=1.13.0",
+    "faiss-gpu-cu12>=1.13.0; sys_platform == 'linux'",
     "ipykernel>=7.1.0",
     "matplotlib>=3.10.7",
     "numpy>=2.3.5",

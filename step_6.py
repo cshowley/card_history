@@ -112,7 +112,7 @@ def run_step_6():
     sales_cols = ["gemrate_id", "grade", "date", "price"]
 
     df_sales_lookup = pd.read_parquet(
-        constants.S3_HISTORICAL_DATA_FILE, columns=sales_cols
+        constants.S2_HISTORICAL_DATA_FILE, columns=sales_cols
     )
     df_sales_lookup["date"] = pd.to_datetime(
         df_sales_lookup["date"], format="mixed", errors="coerce"
@@ -140,7 +140,7 @@ def run_step_6():
     df_sales_lookup = df_sales_lookup.dropna()
     df_sales_lookup["neighbor_id"] = df_sales_lookup["neighbor_id"].astype(str)
 
-    for file in [constants.S3_HISTORICAL_DATA_FILE, constants.S3_TODAY_DATA_FILE]:
+    for file in [constants.S2_HISTORICAL_DATA_FILE, constants.S2_TODAY_DATA_FILE]:
         output_file = file.replace(".parquet", "_with_neighbors.parquet")
 
         print(f"Processing {file}...")
