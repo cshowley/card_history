@@ -152,7 +152,7 @@ def save_to_mongo():
     tracker.data["meta"]["last_updated"] = datetime.now(timezone.utc).isoformat()
     
     # Get MongoDB connection
-    mongo_uri = os.getenv("MONGO_URI")
+    mongo_uri = os.getenv("MONGO_URI_RW")
     if not mongo_uri:
         raise ValueError("MONGO_URI not found in environment")
     

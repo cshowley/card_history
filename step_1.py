@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import pandas as pd
 import requests
 from pymongo import MongoClient
@@ -28,6 +30,10 @@ def run_step_1():
     client = MongoClient(constants.S1_MONGO_URL)
     db = client[constants.S1_DB_NAME]
 
+    # Calculate cutoff date for 7-day filter
+    cutoff_date = datetime.now() - timedelta(days=7)
+    cutoff_date_str = cutoff_date.strftime("%Y-%m-%d")
+
     print("Downloading eBay sales...")
     ebay_collection = db[constants.S1_EBAY_COLLECTION]
     ebay_pipeline = [
@@ -37,7 +43,7 @@ def run_step_1():
                     {"gemrate_data.universal_gemrate_id": {"$exists": True, "$ne": ""}},
                     {"gemrate_data.gemrate_id": {"$exists": True, "$ne": ""}},
                 ],
-                "item_data.date": {"$exists": True},
+                "item_data.date": {"$exists": True, "$gte": cutoff_date_str},
                 "item_data.price": {"$exists": True},
                 "item_data.format": "auction",
             }
@@ -72,7 +78,7 @@ def run_step_1():
                     {"gemrate_data.universal_gemrate_id": {"$exists": True, "$ne": ""}},
                     {"gemrate_data.gemrate_id": {"$exists": True, "$ne": ""}},
                 ],
-                "api_response.soldDate": {"$exists": True},
+                "api_response.soldDate": {"$exists": True, "$gte": cutoff_date_str},
                 "api_response.purchasePrice": {"$exists": True},
                 "api_response.auctionType": {"$in": ["WEEKLY", "PREMIER"]},
             }
