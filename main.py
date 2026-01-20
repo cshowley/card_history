@@ -9,6 +9,7 @@ from step_7 import run_step_7
 from step_8 import run_step_8
 from step_9 import run_step_9
 from step_10 import run_step_10
+from data_integrity import save_to_mongo
 
 if __name__ == "__main__":
     if constants.RUN_STEP_1_DOWNLOAD:
@@ -40,3 +41,8 @@ if __name__ == "__main__":
 
     if constants.RUN_STEP_10_UPLOAD:
         run_step_10()
+
+    # Save data integrity metrics to MongoDB
+    print("\nSaving data integrity metrics...")
+    save_to_mongo()
+    print("Pipeline complete.")

@@ -6,6 +6,7 @@ import pandas as pd
 from tqdm import tqdm
 
 import constants
+from data_integrity import get_tracker
 
 
 def extract_numbers(text):
@@ -416,6 +417,28 @@ def run_step_3():
     df["price"] = df["price"].clip(lower=0.01)
     df = df.reset_index(drop=True)
     df = s3_calculate_seller_popularity(df)
+
+    # Calculate sales per day for data integrity tracking
+    sales_per_day = df.groupby(df["date"].dt.date).size()
+    sales_per_day = sales_per_day.sort_index()
+    
+    # Add sales per day chart to data integrity tracker
+    tracker = get_tracker()
+    tracker.add_chart(
+        id="sales_per_day",
+        title="Sales Per Day",
+        chart_type="line",
+        labels=[str(d) for d in sales_per_day.index.tolist()],
+        datasets=[
+            {
+                "label": "Total Sales",
+                "data": sales_per_day.values.tolist()
+            }
+        ],
+        col_span=12
+    )
+    print(f"  → Recorded {len(sales_per_day)} days of sales data for integrity tracking")
+
     # df = df.loc[df["seller_popularity"] >= 0.01]
     df = pd.concat([df, today], ignore_index=True)
     print(f"  → Total merged: {len(df)} rows")
