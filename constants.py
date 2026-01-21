@@ -65,4 +65,8 @@ S9_OUTPUT_FILE = "predictions_sorted.parquet"
 S10_PREDICTIONS_COLLECTION = "predictions"
 S10_INSERTION_BATCH_SIZE = 100000
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps" if torch.backends.mps.is_available() else "cpu"
+)
