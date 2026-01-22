@@ -428,12 +428,13 @@ def run_step_3():
 
     # Add sales per day chart to data integrity tracker
     tracker = get_tracker()
+    chart_data = [[str(d), int(count)] for d, count in sales_per_day.items()]
     tracker.add_chart(
         id="sales_per_day",
         title="Sales Per Day",
         chart_type="line",
-        labels=[str(d) for d in sales_per_day.index.tolist()],
-        datasets=[{"label": "Total Sales", "data": sales_per_day.values.tolist()}],
+        columns=["date", "sales"],
+        data=chart_data,
     )
     print(
         f"  → Recorded {len(sales_per_day)} days of sales data for integrity tracking"

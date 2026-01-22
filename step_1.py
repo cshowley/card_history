@@ -34,6 +34,7 @@ def run_step_1():
     # df = df[df.date >= datetime(2025, 9, 1)]
     ########something like this ^^^^^^
     ######## currently in step 7
+    ########### or modify the queries using filters that correctly catch string-ified dates
 
     ##########
     # Calculate lower and upper date bounds for string prefix comparison (works for "YYYY-MM-DDTHH:MM:SS..." formats)

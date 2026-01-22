@@ -5,23 +5,18 @@ Provides a global tracker to collect data integrity metrics throughout
 the pipeline execution. Metrics are stored as widgets (metric, chart, table)
 and saved to MongoDB at the end of the run.
 
-Metrics tracked based on exploration analysis:
-- Data volume (eBay/PWCC records downloaded)
-- Missing data counts (no gemrate_id, no grade, no price)
-- Grade distribution breakdown
-- Grading company distribution
-- Sales format distribution
-- Price statistics
-- Data anomalies (zero-bid, single-bid, high-value)
-- Marketplace share comparison
+Schema Design (simplified, ContEx-inspired):
+- Metric: {id, type, title, value}
+- Chart: {id, type, title, chart_type, columns, data}
+- Table: {id, type, title, columns, data}
+
+Chart and Table share the same Dataset structure (columns + data rows).
 """
 
 import os
 from datetime import datetime, timezone
-from collections import Counter
-from pymongo import MongoClient, UpdateOne
+from pymongo import MongoClient
 from dotenv import load_dotenv
-import pandas as pd
 
 load_dotenv()
 
@@ -45,14 +40,13 @@ class DataIntegrityTracker:
             "widgets": [],
         }
 
-    def add_metric(self, id: str, title: str, value: str, col_span: int = 3):
+    def add_metric(self, id: str, title: str, value: str):
         """Add a single metric widget."""
         widget = {
             "id": id,
             "type": "metric",
             "title": title,
-            "layout": {"col_span": col_span},
-            "data": {"value": value},
+            "value": value,
         }
         self.data["widgets"].append(widget)
 
@@ -61,46 +55,45 @@ class DataIntegrityTracker:
         id: str,
         title: str,
         chart_type: str,
-        labels: list,
-        datasets: list,
+        columns: list,
+        data: list,
     ):
         """
-        Add a chart widget.
+        Add a chart widget using Dataset format.
 
         Args:
             id: Unique identifier for the widget
             title: Display title
-            chart_type: Type of chart (e.g., "line", "bar")
-            labels: X-axis labels
-            datasets: List of dataset dicts with "label" and "data" keys
+            chart_type: Type of chart (e.g., "line", "bar", "pie")
+            columns: List of column names (e.g., ["date", "sales", "volume"])
+            data: List of rows, each row is a list matching columns
         """
         widget = {
             "id": id,
             "type": "chart",
             "title": title,
-            "data": {"type": chart_type, "labels": labels, "datasets": datasets},
+            "chart_type": chart_type,
+            "columns": columns,
+            "data": data,
         }
         self.data["widgets"].append(widget)
 
-    def add_table(
-        self, id: str, title: str, headers: list, rows: list, col_span: int = 12
-    ):
+    def add_table(self, id: str, title: str, columns: list, data: list):
         """
-        Add a table widget.
+        Add a table widget using Dataset format.
 
         Args:
             id: Unique identifier for the widget
             title: Display title
-            headers: List of column headers
-            rows: List of row data (each row is a list)
-            col_span: Layout column span (1-12)
+            columns: List of column headers
+            data: List of rows, each row is a list matching columns
         """
         widget = {
             "id": id,
             "type": "table",
             "title": title,
-            "layout": {"col_span": col_span},
-            "data": {"headers": headers, "rows": rows},
+            "columns": columns,
+            "data": data,
         }
         self.data["widgets"].append(widget)
 
