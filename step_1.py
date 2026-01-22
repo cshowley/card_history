@@ -152,7 +152,6 @@ def run_step_1():
         pwcc_before_cutoff = (pwcc_dates < cutoff_date).sum()
 
     sales_before_cutoff = ebay_before_cutoff + pwcc_before_cutoff
-    print(f"sales before cutoff: {sales_before_cutoff}")
     tracker.add_metric(
         id="s1_sales_before_sep_2025",
         title="Sales Before 9/1/2025",
