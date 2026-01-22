@@ -3,10 +3,34 @@ import sys
 import time
 
 import pandas as pd
+from pymongo import MongoClient
 from sentence_transformers import SentenceTransformer
 
 import constants
 from data_integrity import get_tracker
+
+
+def s2_download_catalog_from_mongo():
+    """Download pokemon_card_metadata_oracle collection from MongoDB."""
+    print("Downloading catalog from MongoDB...")
+
+    if not constants.S1_MONGO_URL:
+        raise ValueError("MONGO_URL environment variable is not set")
+
+    client = MongoClient(constants.S1_MONGO_URL)
+    db = client[constants.S1_DB_NAME]
+    collection = db[constants.S2_CATALOG_COLLECTION]
+
+    print(f"Fetching {constants.S2_CATALOG_COLLECTION} collection...")
+    cursor = collection.find({}, max_time_ms=constants.S1_MONGO_MAX_TIME_MS)
+    records = list(cursor)
+    print(f"  → Downloaded {len(records)} records")
+
+    df = pd.json_normalize(records)
+    print(f"Saving to {constants.S2_INPUT_CATALOG_FILE}...")
+    df.to_csv(constants.S2_INPUT_CATALOG_FILE, index=False)
+
+    return df
 
 
 def run_step_2():
@@ -15,11 +39,12 @@ def run_step_2():
     tracker = get_tracker()
 
     if not os.path.exists(constants.S2_INPUT_CATALOG_FILE):
-        print(f"Error: Input file '{constants.S2_INPUT_CATALOG_FILE}' not found.")
-        sys.exit(1)
-
-    print(f"Loading data from {constants.S2_INPUT_CATALOG_FILE}...")
-    df = pd.read_csv(constants.S2_INPUT_CATALOG_FILE, low_memory=False)
+        print(f"Input file '{constants.S2_INPUT_CATALOG_FILE}' not found.")
+        print("Downloading from MongoDB...")
+        df = s2_download_catalog_from_mongo()
+    else:
+        print(f"Loading data from {constants.S2_INPUT_CATALOG_FILE}...")
+        df = pd.read_csv(constants.S2_INPUT_CATALOG_FILE, low_memory=False)
 
     print(f"Initial rows: {len(df)}")
 

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 RUN_STEP_1_DOWNLOAD = True
-RUN_STEP_2_TEXT_EMBEDDING = False
+RUN_STEP_2_TEXT_EMBEDDING = True
 RUN_STEP_3_FEATURE_PREP = False
 RUN_STEP_4_PRICE_EMBEDDING = False
 RUN_STEP_5_NEIGHBOR_SEARCH = False
@@ -27,6 +27,7 @@ S1_INDEX_FILE = "index.csv"
 S1_MONGO_MAX_TIME_MS = 6000000
 
 S2_INPUT_CATALOG_FILE = "gemrate_pokemon_catalog_20260108.csv"
+S2_CATALOG_COLLECTION = "pokemon_card_metadata_oracle"
 S2_OUTPUT_EMBEDDINGS_FILE = "text_embeddings.parquet"
 S2_MODEL_NAME = "BAAI/bge-m3"
 
