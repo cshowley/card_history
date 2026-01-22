@@ -1,4 +1,5 @@
 import os
+import time
 
 import numpy as np
 import pandas as pd
@@ -7,6 +8,7 @@ import pyarrow.parquet as pq
 from tqdm import tqdm
 
 import constants
+from data_integrity import get_tracker
 
 
 def s6_load_index_series():
@@ -109,6 +111,9 @@ def s6_process_chunk(chunk_df, df_neighbors, neighbor_sales, index_series):
 
 def run_step_6():
     print("Starting Step 6: Neighbor Features...")
+    start_time = time.time()
+    tracker = get_tracker()
+
     sales_cols = ["gemrate_id", "grade", "date", "price"]
 
     df_sales_lookup = pd.read_parquet(
@@ -196,5 +201,18 @@ def run_step_6():
             )
         else:
             print(f"No data processed for {file}")
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    tracker.add_metric(
+        id="s6_neighbors_used",
+        title="Neighbors Per Card",
+        value=str(constants.S6_N_NEIGHBORS),
+    )
+    tracker.add_metric(
+        id="s6_duration",
+        title="Step 6 Duration",
+        value=f"{duration:.1f}s",
+    )
 
     print("Step 6 complete")

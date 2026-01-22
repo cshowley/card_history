@@ -2,12 +2,14 @@ import glob
 import json
 import multiprocessing
 import os
+import time
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 import constants
+from data_integrity import get_tracker
 
 
 LOWER_QUANTILE = 0.05
@@ -117,6 +119,9 @@ def train_worker(config, best_params, input_file, gpu_id):
 def train_model():
     """Trains the XGBoost models in parallel using multiprocessing."""
     print("Step 7: Training XGBoost Models Parallelly")
+    start_time = time.time()
+    tracker = get_tracker()
+
     input_file = constants.S3_HISTORICAL_DATA_FILE.replace(
         ".parquet", "_with_neighbors.parquet"
     )
@@ -155,6 +160,19 @@ def train_model():
     for p in processes:
         if p.exitcode != 0:
             raise RuntimeError("One or more training processes failed.")
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    tracker.add_metric(
+        id="s7_models_trained",
+        title="Models Trained",
+        value="3 (Gamma, Lower, Upper)",
+    )
+    tracker.add_metric(
+        id="s7_duration",
+        title="Step 7 Duration",
+        value=f"{duration:.1f}s",
+    )
 
     print("All models trained and saved successfully.")
 

@@ -1,11 +1,17 @@
+import time
+
 import pandas as pd
 from pymongo import MongoClient, ReplaceOne
-import constants
 from tqdm import tqdm
+
+import constants
+from data_integrity import get_tracker
 
 
 def run_step_10():
     print("Starting Step 10: Upload Predictions to MongoDB...")
+    start_time = time.time()
+    tracker = get_tracker()
 
     if not constants.S1_MONGO_URL:
         raise ValueError("MONGO_URL environment variable is not set")
@@ -55,7 +61,20 @@ def run_step_10():
 
     print("Creating index on 'gemrate_id'...")
     collection.create_index("gemrate_id")
-    
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    tracker.add_metric(
+        id="s10_documents_uploaded",
+        title="Documents Uploaded",
+        value=f"{inserted_count:,}",
+    )
+    tracker.add_metric(
+        id="s10_duration",
+        title="Step 10 Duration",
+        value=f"{duration:.1f}s",
+    )
+
     print(
         f"Step 10 Complete. Uploaded {inserted_count} documents to collection '{collection_name}'."
     )

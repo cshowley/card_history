@@ -1,4 +1,5 @@
 import os
+import time
 
 import numpy as np
 import pandas as pd
@@ -6,6 +7,7 @@ import torch
 from tqdm import tqdm
 
 import constants
+from data_integrity import get_tracker
 
 
 def s5_build_search_matrices(price_vecs, embedding_file):
@@ -107,6 +109,8 @@ def s5_prepare_matrices(price_vecs, embedding_file):
 
 def run_step_5():
     print("Starting Step 5: Neighbor Search (Robust)...")
+    start_time = time.time()
+    tracker = get_tracker()
 
     if not os.path.exists(constants.S2_OUTPUT_EMBEDDINGS_FILE):
         print(f"Embeddings file {constants.S2_OUTPUT_EMBEDDINGS_FILE} not found.")
@@ -194,4 +198,24 @@ def run_step_5():
         f"Unique Query IDs processed: {results_df['gemrate_id'].nunique()} / {num_queries}"
     )
     results_df.to_parquet(constants.S5_OUTPUT_NEIGHBORS_FILE)
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    unique_queries = results_df["gemrate_id"].nunique()
+    tracker.add_metric(
+        id="s5_cards_with_neighbors",
+        title="Cards with Neighbors",
+        value=f"{unique_queries:,}",
+    )
+    tracker.add_metric(
+        id="s5_total_neighbor_pairs",
+        title="Total Neighbor Pairs",
+        value=f"{len(results_df):,}",
+    )
+    tracker.add_metric(
+        id="s5_duration",
+        title="Step 5 Duration",
+        value=f"{duration:.1f}s",
+    )
+
     print("Step 5 Complete.")

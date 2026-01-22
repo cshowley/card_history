@@ -128,6 +128,42 @@ def run_step_1():
     index_df = s1_fetch_index_data(constants.S1_INDEX_API_URL)
     index_df.to_csv(constants.S1_INDEX_FILE, index=False)
 
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    ebay_count = len(ebay_df)
+    pwcc_count = len(pwcc_df)
+    total_count = ebay_count + pwcc_count
+
+    tracker.add_metric(
+        id="s1_total_records",
+        title="Total Records Downloaded",
+        value=f"{total_count:,}",
+    )
+    tracker.add_metric(
+        id="s1_duration",
+        title="Step 1 Duration",
+        value=f"{duration:.1f}s",
+    )
+    tracker.add_table(
+        id="s1_marketplace_breakdown",
+        title="Marketplace Breakdown",
+        columns=["Source", "Records", "Share"],
+        data=[
+            [
+                "eBay",
+                f"{ebay_count:,}",
+                f"{ebay_count/total_count*100:.1f}%" if total_count > 0 else "0%",
+            ],
+            [
+                "PWCC",
+                f"{pwcc_count:,}",
+                f"{pwcc_count/total_count*100:.1f}%" if total_count > 0 else "0%",
+            ],
+        ],
+    )
+
+    print("Step 1 Complete.")
+
     # # ==========================================================
     # # Data Integrity Tracking
     # # ==========================================================

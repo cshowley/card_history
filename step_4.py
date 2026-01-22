@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import pandas as pd
 import torch
@@ -5,6 +7,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 import constants
+from data_integrity import get_tracker
 
 
 class LSTMAutoencoder(nn.Module):
@@ -235,6 +238,9 @@ def s4_train_and_extract(X_data, ids_map):
 
 
 def run_step_4():
+    start_time = time.time()
+    tracker = get_tracker()
+
     df_sales = pd.read_parquet(
         constants.S3_HISTORICAL_DATA_FILE,
         columns=["gemrate_id", "grade", "date", "price"],
@@ -254,4 +260,18 @@ def run_step_4():
 
     print(f"Saving price vectors to {constants.S4_OUTPUT_PRICE_VECS_FILE}...")
     price_vecs.to_parquet(constants.S4_OUTPUT_PRICE_VECS_FILE)
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    tracker.add_metric(
+        id="s4_cards_with_price_vectors",
+        title="Cards with Price Vectors",
+        value=f"{len(price_vecs):,}",
+    )
+    tracker.add_metric(
+        id="s4_duration",
+        title="Step 4 Duration",
+        value=f"{duration:.1f}s",
+    )
+
     print("Step 4 Complete.")

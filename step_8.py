@@ -1,5 +1,6 @@
 import concurrent.futures
 import os
+import time
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ import xgboost as xgb
 from tqdm import tqdm
 
 import constants
+from data_integrity import get_tracker
 
 
 def reverse_dummies(df, prefix, drop_prefix=True):
@@ -43,6 +45,8 @@ def predict_worker(model, X, device):
 
 def run_step_8():
     print("Starting Step 8: Inference on Today's Data Parallelly...")
+    start_time = time.time()
+    tracker = get_tracker()
 
     model_file = constants.S7_OUTPUT_MODEL_FILE
     input_file = constants.S3_TODAY_DATA_FILE.replace(
@@ -144,6 +148,19 @@ def run_step_8():
         print(f"Inference complete. Saved {total_rows} predictions to {output_file}.")
     else:
         print("No data processed.")
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    tracker.add_metric(
+        id="s8_predictions_generated",
+        title="Predictions Generated",
+        value=f"{total_rows:,}",
+    )
+    tracker.add_metric(
+        id="s8_duration",
+        title="Step 8 Duration",
+        value=f"{duration:.1f}s",
+    )
 
 
 if __name__ == "__main__":

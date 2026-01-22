@@ -1,14 +1,19 @@
 import os
 import sys
+import time
 
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
 import constants
+from data_integrity import get_tracker
 
 
 def run_step_2():
     print("Starting Step 2: Text Embedding...")
+    start_time = time.time()
+    tracker = get_tracker()
+
     if not os.path.exists(constants.S2_INPUT_CATALOG_FILE):
         print(f"Error: Input file '{constants.S2_INPUT_CATALOG_FILE}' not found.")
         sys.exit(1)
@@ -77,4 +82,25 @@ def run_step_2():
 
     print(f"Saving {len(output_df)} rows to {constants.S2_OUTPUT_EMBEDDINGS_FILE}...")
     output_df.to_parquet(constants.S2_OUTPUT_EMBEDDINGS_FILE, index=False)
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    embedding_dim = embeddings.shape[1] if len(embeddings) > 0 else 0
+
+    tracker.add_metric(
+        id="s2_cards_embedded",
+        title="Cards Embedded",
+        value=f"{len(output_df):,}",
+    )
+    tracker.add_metric(
+        id="s2_embedding_dim",
+        title="Embedding Dimension",
+        value=str(embedding_dim),
+    )
+    tracker.add_metric(
+        id="s2_duration",
+        title="Step 2 Duration",
+        value=f"{duration:.1f}s",
+    )
+
     print("Step 2 Complete.")

@@ -1,11 +1,17 @@
 import os
-import pandas as pd
+import time
+
 import numpy as np
+import pandas as pd
+
 import constants
+from data_integrity import get_tracker
 
 
 def run_step_9():
     print("Starting Step 9: Re-sorting Predictions...")
+    start_time = time.time()
+    tracker = get_tracker()
 
     input_file = constants.S8_PREDICTIONS_FILE
     output_file = constants.S9_OUTPUT_FILE
@@ -40,7 +46,7 @@ def run_step_9():
         )
 
         df[col] = df.groupby(group_cols)[col].transform(lambda x: np.sort(x.values))
-    
+
     lower = np.minimum(df["prediction_lower"], df["prediction_upper"])
     upper = np.maximum(df["prediction_lower"], df["prediction_upper"])
     df["prediction_lower"] = lower
@@ -124,6 +130,22 @@ def run_step_9():
     outliers = spot_df[(spot_df["ratio"] > 1.2) | (spot_df["ratio"] < 0.8)]
     count = len(outliers)
     print(f"Found {count} outliers (prediction / recent_price > 1.2 or < 0.8)")
+
+    # Data Integrity Tracking
+    duration = time.time() - start_time
+    total_spot_checks = len(spot_df)
+    outlier_pct = (count / total_spot_checks * 100) if total_spot_checks > 0 else 0
+
+    tracker.add_metric(
+        id="s9_qa_outliers",
+        title="QA Outliers (>20% diff)",
+        value=f"{count:,} ({outlier_pct:.1f}%)",
+    )
+    tracker.add_metric(
+        id="s9_duration",
+        title="Step 9 Duration",
+        value=f"{duration:.1f}s",
+    )
 
     print("Done.")
 
