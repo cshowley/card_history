@@ -4,12 +4,24 @@ Data Integrity Tracker Module
 Provides a global tracker to collect data integrity metrics throughout
 the pipeline execution. Metrics are stored as widgets (metric, chart, table)
 and saved to MongoDB at the end of the run.
+
+Metrics tracked based on exploration analysis:
+- Data volume (eBay/PWCC records downloaded)
+- Missing data counts (no gemrate_id, no grade, no price)
+- Grade distribution breakdown
+- Grading company distribution
+- Sales format distribution
+- Price statistics
+- Data anomalies (zero-bid, single-bid, high-value)
+- Marketplace share comparison
 """
 
 import os
 from datetime import datetime, timezone
+from collections import Counter
 from pymongo import MongoClient, UpdateOne
 from dotenv import load_dotenv
+import pandas as pd
 
 load_dotenv()
 
@@ -51,7 +63,6 @@ class DataIntegrityTracker:
         chart_type: str,
         labels: list,
         datasets: list,
-        col_span: int = 12,
     ):
         """
         Add a chart widget.
@@ -62,13 +73,11 @@ class DataIntegrityTracker:
             chart_type: Type of chart (e.g., "line", "bar")
             labels: X-axis labels
             datasets: List of dataset dicts with "label" and "data" keys
-            col_span: Layout column span (1-12)
         """
         widget = {
             "id": id,
             "type": "chart",
             "title": title,
-            "layout": {"col_span": col_span},
             "data": {"type": chart_type, "labels": labels, "datasets": datasets},
         }
         self.data["widgets"].append(widget)

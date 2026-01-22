@@ -2,6 +2,7 @@ import glob
 import json
 import multiprocessing
 import os
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -48,7 +49,6 @@ def upper_bound_loss(y_true, y_pred):
     )
 
 
-
 def get_best_params():
     """Finds the best hyperparameters from the model/results directory."""
     results_dir = "model/results"
@@ -57,22 +57,22 @@ def get_best_params():
     if not result_files:
         raise FileNotFoundError(f"No result files found in {results_dir}")
 
-    best_mgd = float("inf")
+    best_mape = float("inf")
     best_params = None
     best_worker = None
 
     for file in result_files:
         with open(file, "r") as f:
             data = json.load(f)
-            if "best_mgd" in data and "best_params" in data:
-                if data["best_mgd"] < best_mgd:
-                    best_mgd = data["best_mgd"]
+            if "best_mape" in data and "best_params" in data:
+                if data["best_mape"] < best_mape:
+                    best_mape = data["best_mape"]
                     best_params = data["best_params"]
                     best_worker = data.get("worker_id", "unknown")
     if best_params is None:
         raise ValueError("Could not find any valid best parameters in result files.")
 
-    print(f"Best params found from worker {best_worker} with MGD: {best_mgd:.4f}")
+    print(f"Best params found from worker {best_worker} with mape: {best_mape:.4f}")
     return best_params
 
 
@@ -90,6 +90,7 @@ def train_worker(config, best_params, input_file, gpu_id):
         df["grade"] = pd.to_numeric(df["grade"], errors="raise")
         df["half_grade"] = pd.to_numeric(df["half_grade"], errors="raise")
         df["seller_popularity"] = pd.to_numeric(df["seller_popularity"], errors="raise")
+        df = df[df.date >= datetime(2025, 9, 1)]
         exclude_cols = ["gemrate_id", "date", "price", "_row_id"]
         feature_cols = [c for c in df.columns if c not in exclude_cols]
 
@@ -130,12 +131,12 @@ def train_model():
         {
             "name": "Lower",
             "file": constants.S7_OUTPUT_MODEL_FILE.replace(".json", "_lower.json"),
-            "objective": lower_bound_loss
+            "objective": lower_bound_loss,
         },
         {
             "name": "Upper",
             "file": constants.S7_OUTPUT_MODEL_FILE.replace(".json", "_upper.json"),
-            "objective": upper_bound_loss
+            "objective": upper_bound_loss,
         },
     ]
 

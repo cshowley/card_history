@@ -419,11 +419,13 @@ def run_step_3():
     df = s3_calculate_seller_popularity(df)
 
     # Calculate sales per day for data integrity tracking (last 28 days)
-    cutoff_date = pd.Timestamp.now().normalize() - pd.Timedelta(days=28)
+    # cutoff_date = pd.Timestamp.now().normalize() - pd.Timedelta(days=28)
+
+    cutoff_date = pd.to_datetime("2025-12-1") - pd.Timedelta(days=28)
     recent_sales = df[df["date"] >= cutoff_date]
     sales_per_day = recent_sales.groupby(recent_sales["date"].dt.date).size()
     sales_per_day = sales_per_day.sort_index()
-    
+
     # Add sales per day chart to data integrity tracker
     tracker = get_tracker()
     tracker.add_chart(
@@ -431,15 +433,11 @@ def run_step_3():
         title="Sales Per Day",
         chart_type="line",
         labels=[str(d) for d in sales_per_day.index.tolist()],
-        datasets=[
-            {
-                "label": "Total Sales",
-                "data": sales_per_day.values.tolist()
-            }
-        ],
-        col_span=12
+        datasets=[{"label": "Total Sales", "data": sales_per_day.values.tolist()}],
     )
-    print(f"  → Recorded {len(sales_per_day)} days of sales data for integrity tracking")
+    print(
+        f"  → Recorded {len(sales_per_day)} days of sales data for integrity tracking"
+    )
 
     # df = df.loc[df["seller_popularity"] >= 0.01]
     df = pd.concat([df, today], ignore_index=True)

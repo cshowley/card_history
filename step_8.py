@@ -50,8 +50,11 @@ def run_step_8():
     )
     output_file = constants.S8_PREDICTIONS_FILE
 
-    if not os.path.exists(model_file):
-        raise FileNotFoundError(f"Model file not found: {model_file}")
+    # Check all three model files exist (step_7 creates _lower, _upper, _gamma versions)
+    for suffix in ["_lower.json", "_upper.json", "_gamma.json"]:
+        file_path = model_file.replace(".json", suffix)
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Model file not found: {file_path}")
     if not os.path.exists(input_file):
         raise FileNotFoundError(f"Input file not found: {input_file}")
 
