@@ -91,6 +91,7 @@ if __name__ == "__main__":
     )
 
     # Save data integrity metrics to MongoDB
-    print("\nSaving data integrity metrics...")
-    save_to_mongo()
+    if constants.UPDATE_TRACKER:
+        print("\nSaving data integrity metrics...")
+        save_to_mongo()
     print("Pipeline complete.")

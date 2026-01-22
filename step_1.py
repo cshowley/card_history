@@ -134,6 +134,31 @@ def run_step_1():
     pwcc_count = len(pwcc_df)
     total_count = ebay_count + pwcc_count
 
+    # Count sales before 9/1/2025
+    cutoff_date = datetime(2025, 9, 1)
+    ebay_before_cutoff = 0
+    pwcc_before_cutoff = 0
+
+    if "item_data.date" in ebay_df.columns and len(ebay_df) > 0:
+        ebay_dates = pd.to_datetime(ebay_df["item_data.date"], errors="coerce")
+        ebay_before_cutoff = (ebay_dates < cutoff_date).sum()
+
+    if "api_response.soldDate" in pwcc_df.columns and len(pwcc_df) > 0:
+        # Remove timezone abbreviation from the end of the sold date
+        pwcc_dates_str = pwcc_df["api_response.soldDate"].str.replace(
+            r" [A-Z]{3,4}$", "", regex=True
+        )
+        pwcc_dates = pd.to_datetime(pwcc_dates_str, errors="coerce")
+        pwcc_before_cutoff = (pwcc_dates < cutoff_date).sum()
+
+    sales_before_cutoff = ebay_before_cutoff + pwcc_before_cutoff
+    print(f"sales before cutoff: {sales_before_cutoff}")
+    tracker.add_metric(
+        id="s1_sales_before_sep_2025",
+        title="Sales Before 9/1/2025",
+        value=f"{sales_before_cutoff:,}",
+    )
+
     tracker.add_metric(
         id="s1_total_records",
         title="Total Records Downloaded",
