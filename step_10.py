@@ -67,12 +67,12 @@ def run_step_10():
     tracker.add_metric(
         id="s10_documents_uploaded",
         title="Documents Uploaded",
-        value=f"{inserted_count:,}",
+        value=inserted_count,
     )
     tracker.add_metric(
         id="s10_duration",
         title="Step 10 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print(

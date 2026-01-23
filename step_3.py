@@ -459,7 +459,7 @@ def run_step_3():
         tracker.add_metric(
             id="s3_median_days_between_top_100_sales",
             title="Median Days Between Sales (Top 100 Cards)",
-            value=f"{median_days:.1f} days",
+            value=round(median_days, 1),
         )
         print(f"  → Median days between sales for top 100 cards: {median_days:.1f}")
 
@@ -516,7 +516,7 @@ def run_step_3():
     tracker.add_metric(
         id="s3_total_cleaned",
         title="Total Filtered Records",
-        value=f"{len(df):,}",
+        value=len(df),
     )
 
     unique_ids = df["gemrate_id"].unique()
@@ -629,7 +629,7 @@ def run_step_3():
     tracker.add_metric(
         id="s3_duration",
         title="Step 3 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print("Step 3 Complete.")

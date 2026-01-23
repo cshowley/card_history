@@ -139,12 +139,17 @@ def run_step_9():
     tracker.add_metric(
         id="s9_qa_outliers",
         title="QA Outliers (>20% diff)",
-        value=f"{count:,} ({outlier_pct:.1f}%)",
+        value=count,
+    )
+    tracker.add_metric(
+        id="s9_qa_outlier_pct",
+        title="QA Outlier Percentage",
+        value=round(outlier_pct, 1),
     )
     tracker.add_metric(
         id="s9_duration",
         title="Step 9 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print("Done.")

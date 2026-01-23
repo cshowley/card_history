@@ -154,12 +154,12 @@ def run_step_8():
     tracker.add_metric(
         id="s8_predictions_generated",
         title="Predictions Generated",
-        value=f"{total_rows:,}",
+        value=total_rows,
     )
     tracker.add_metric(
         id="s8_duration",
         title="Step 8 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
 

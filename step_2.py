@@ -115,12 +115,12 @@ def run_step_2():
     tracker.add_metric(
         id="s2_cards_embedded",
         title="Cards Embedded",
-        value=f"{len(output_df)}",
+        value=len(output_df),
     )
     tracker.add_metric(
         id="s2_duration",
         title="Step 2 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print("Step 2 Complete.")

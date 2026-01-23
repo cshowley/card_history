@@ -266,12 +266,12 @@ def run_step_4():
     tracker.add_metric(
         id="s4_cards_with_price_vectors",
         title="Cards with Price Vectors",
-        value=f"{len(price_vecs):,}",
+        value=len(price_vecs),
     )
     tracker.add_metric(
         id="s4_duration",
         title="Step 4 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print("Step 4 Complete.")

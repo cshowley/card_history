@@ -105,12 +105,12 @@ def calculate_validation_mdape(input_file, best_params, tracker):
     tracker.add_metric(
         id="s7_validation_mdape",
         title="Validation MdAPE",
-        value=f"{mdape:.2f}%",
+        value=round(mdape, 2),
     )
     tracker.add_metric(
         id="s7_validation_mape",
         title="Validation MAPE",
-        value=f"{mape:.2f}%",
+        value=round(mape, 2),
     )
 
     # Discard the temporary model
@@ -236,7 +236,7 @@ def train_model():
     tracker.add_metric(
         id="s7_duration",
         title="Step 7 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print("All models trained and saved successfully.")

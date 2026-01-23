@@ -153,7 +153,7 @@ def run_step_1():
     tracker.add_metric(
         id="s1_sales_before_sep_2025",
         title="Sales Before 9/1/2025",
-        value=f"{sales_before_cutoff:,}",
+        value=sales_before_cutoff,
     )
 
     # Drop sales before 9/1/2025
@@ -176,7 +176,7 @@ def run_step_1():
     tracker.add_metric(
         id="s1_dropped_sales_before_sep_2025",
         title="Total Dropped Sales Before 9/1/2025",
-        value=f"{dropped_sales_before_cutoff:,}",
+        value=dropped_sales_before_cutoff,
     )
 
     ebay_df.to_csv(constants.S1_EBAY_MARKET_FILE, index=False)
@@ -185,12 +185,12 @@ def run_step_1():
     tracker.add_metric(
         id="s1_total_records",
         title="Total Records Downloaded",
-        value=f"{total_count:,}",
+        value=total_count,
     )
     tracker.add_metric(
         id="s1_duration",
         title="Step 1 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
     tracker.add_table(
         id="s1_marketplace_breakdown",
@@ -199,13 +199,13 @@ def run_step_1():
         data=[
             [
                 "eBay",
-                f"{ebay_count:,}",
-                f"{ebay_count/total_count*100:.1f}%" if total_count > 0 else "0%",
+                ebay_count,
+                round(ebay_count / total_count * 100, 1) if total_count > 0 else 0,
             ],
             [
                 "PWCC",
-                f"{pwcc_count:,}",
-                f"{pwcc_count/total_count*100:.1f}%" if total_count > 0 else "0%",
+                pwcc_count,
+                round(pwcc_count / total_count * 100, 1) if total_count > 0 else 0,
             ],
         ],
     )

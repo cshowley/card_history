@@ -207,12 +207,12 @@ def run_step_6():
     tracker.add_metric(
         id="s6_neighbors_used",
         title="Neighbors Per Card",
-        value=str(constants.S6_N_NEIGHBORS),
+        value=constants.S6_N_NEIGHBORS,
     )
     tracker.add_metric(
         id="s6_duration",
         title="Step 6 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print("Step 6 complete")

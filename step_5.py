@@ -205,17 +205,17 @@ def run_step_5():
     tracker.add_metric(
         id="s5_cards_with_neighbors",
         title="Cards with Neighbors",
-        value=f"{unique_queries:,}",
+        value=unique_queries,
     )
     tracker.add_metric(
         id="s5_total_neighbor_pairs",
         title="Total Neighbor Pairs",
-        value=f"{len(results_df):,}",
+        value=len(results_df),
     )
     tracker.add_metric(
         id="s5_duration",
         title="Step 5 Duration",
-        value=f"{duration:.1f}",
+        value=round(duration, 1),
     )
 
     print("Step 5 Complete.")
