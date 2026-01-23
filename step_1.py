@@ -85,7 +85,6 @@ def run_step_1():
     )
     ebay_df = pd.json_normalize(list(ebay_results))
     print(f" → eBay rows loaded: {len(ebay_df)}")
-    ebay_df.to_csv(constants.S1_EBAY_MARKET_FILE, index=False)
 
     print("Downloading PWCC/Fanatics sales...")
     pwcc_collection = db[constants.S1_PWCC_COLLECTION]
@@ -123,7 +122,6 @@ def run_step_1():
     )
     pwcc_df = pd.json_normalize(list(pwcc_results))
     print(f" → PWCC rows loaded: {len(pwcc_df)}")
-    pwcc_df.to_csv(constants.S1_PWCC_MARKET_FILE, index=False)
 
     index_df = s1_fetch_index_data(constants.S1_INDEX_API_URL)
     index_df.to_csv(constants.S1_INDEX_FILE, index=False)
@@ -157,6 +155,32 @@ def run_step_1():
         title="Sales Before 9/1/2025",
         value=f"{sales_before_cutoff:,}",
     )
+
+    # Drop sales before 9/1/2025
+    if sales_before_cutoff > 0:
+        ebay_df["tmp_dates"] = ebay_dates
+        ebay_count = ebay_df.shape[0]
+        ebay_df = ebay_df[ebay_df.tmp_dates >= cutoff_date]
+        ebay_df = ebay_df.drop("tmp_dates", axis=1)
+        ebay_count -= ebay_df.shape[0]
+
+        pwcc_df["tmp_dates"] = pwcc_dates
+        pwcc_count = pwcc_df.shape[0]
+        pwcc_df = pwcc_df[pwcc_df.tmp_dates >= cutoff_date]
+        pwcc_df = pwcc_df.drop("tmp_dates", axis=1)
+        pwcc_count -= pwcc_df.shape[0]
+        dropped_sales_before_cutoff = ebay_count + pwcc_count
+    else:
+        dropped_sales_before_cutoff = sales_before_cutoff
+
+    tracker.add_metric(
+        id="s1_dropped_sales_before_sep_2025",
+        title="Total Dropped Sales Before 9/1/2025",
+        value=f"{dropped_sales_before_cutoff:,}",
+    )
+
+    ebay_df.to_csv(constants.S1_EBAY_MARKET_FILE, index=False)
+    pwcc_df.to_csv(constants.S1_PWCC_MARKET_FILE, index=False)
 
     tracker.add_metric(
         id="s1_total_records",

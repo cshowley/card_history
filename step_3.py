@@ -429,12 +429,6 @@ def run_step_3():
     # Add sales per day chart to data integrity tracker
     tracker = get_tracker()
 
-    tracker.add_metric(
-        id="s3_total_cleaned",
-        title="Total Cleaned Records",
-        value=f"{len(df):,}",
-    )
-
     chart_data = [[str(d), int(count)] for d, count in sales_per_day.items()]
     tracker.add_chart(
         id="sales_per_day",
@@ -478,6 +472,12 @@ def run_step_3():
     df = df[df["gemrate_id"].astype(str).isin(valid_ids)]
     print(
         f"  → Filtered {initial_count - len(df)} rows not in catalog. Remaining: {len(df)}"
+    )
+
+    tracker.add_metric(
+        id="s3_total_cleaned",
+        title="Total Filtered Records",
+        value=f"{len(df):,}",
     )
 
     unique_ids = df["gemrate_id"].unique()
