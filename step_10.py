@@ -72,7 +72,7 @@ def run_step_10():
     tracker.add_metric(
         id="s10_duration",
         title="Step 10 Duration",
-        value=f"{duration:.1f}s",
+        value=f"{duration:.1f}",
     )
 
     print(

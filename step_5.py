@@ -215,7 +215,7 @@ def run_step_5():
     tracker.add_metric(
         id="s5_duration",
         title="Step 5 Duration",
-        value=f"{duration:.1f}s",
+        value=f"{duration:.1f}",
     )
 
     print("Step 5 Complete.")

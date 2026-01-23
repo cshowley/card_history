@@ -236,7 +236,7 @@ def train_model():
     tracker.add_metric(
         id="s7_duration",
         title="Step 7 Duration",
-        value=f"{duration:.1f}s",
+        value=f"{duration:.1f}",
     )
 
     print("All models trained and saved successfully.")

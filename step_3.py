@@ -629,7 +629,7 @@ def run_step_3():
     tracker.add_metric(
         id="s3_duration",
         title="Step 3 Duration",
-        value=f"{duration:.1f}s",
+        value=f"{duration:.1f}",
     )
 
     print("Step 3 Complete.")

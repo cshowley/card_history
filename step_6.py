@@ -212,7 +212,7 @@ def run_step_6():
     tracker.add_metric(
         id="s6_duration",
         title="Step 6 Duration",
-        value=f"{duration:.1f}s",
+        value=f"{duration:.1f}",
     )
 
     print("Step 6 complete")

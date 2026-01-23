@@ -190,7 +190,7 @@ def run_step_1():
     tracker.add_metric(
         id="s1_duration",
         title="Step 1 Duration",
-        value=f"{duration:.1f}s",
+        value=f"{duration:.1f}",
     )
     tracker.add_table(
         id="s1_marketplace_breakdown",
