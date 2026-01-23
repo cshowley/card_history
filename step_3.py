@@ -444,6 +444,82 @@ def run_step_3():
         f"  → Recorded {len(sales_per_day)} days of sales data for integrity tracking"
     )
 
+    # Calculate dollar volume per day (sum of prices)
+    print("  → Calculating dollar volume per day...")
+    dollar_volume_per_day = recent_sales.groupby(recent_sales["date"].dt.date)[
+        "price"
+    ].sum()
+    dollar_volume_per_day = dollar_volume_per_day.sort_index()
+    dollar_chart_data = [
+        [str(d), round(float(volume), 2)] for d, volume in dollar_volume_per_day.items()
+    ]
+    tracker.add_chart(
+        id="dollar_volume_per_day",
+        title="Dollar Volume Per Day",
+        chart_type="line",
+        columns=["date", "dollar_volume"],
+        data=dollar_chart_data,
+    )
+    print(f"  → Recorded {len(dollar_volume_per_day)} days of dollar volume data")
+
+    # Calculate median price per day
+    print("  → Calculating median price per day...")
+    median_price_per_day = recent_sales.groupby(recent_sales["date"].dt.date)[
+        "price"
+    ].median()
+    median_price_per_day = median_price_per_day.sort_index()
+    median_price_chart_data = [
+        [str(d), round(float(price), 2)] for d, price in median_price_per_day.items()
+    ]
+    tracker.add_chart(
+        id="median_price_per_day",
+        title="Median Sales Price Per Day",
+        chart_type="line",
+        columns=["date", "median_price"],
+        data=median_price_chart_data,
+    )
+    print(f"  → Recorded {len(median_price_per_day)} days of median price data")
+
+    # Calculate sales histogram by price (logarithmic bins) for most recent day
+    print("  → Calculating sales price histogram...")
+    latest_date = recent_sales["date"].dt.date.max()
+    today_sales = recent_sales[recent_sales["date"].dt.date == latest_date]
+    today_prices = today_sales["price"].dropna()
+
+    bins = [0, 1, 10, 100, 1000, 10000, float("inf")]
+    bin_labels = ["$0-1", "$1-10", "$10-100", "$100-1K", "$1K-10K", "$10K+"]
+    bin_counts = pd.cut(today_prices, bins=bins, labels=bin_labels).value_counts()
+    bin_counts = bin_counts.reindex(bin_labels, fill_value=0)
+
+    histogram_data = [[label, int(count)] for label, count in bin_counts.items()]
+    tracker.add_chart(
+        id="sales_price_histogram",
+        title=f"Sales Price Distribution ({latest_date})",
+        chart_type="bar",
+        columns=["price_range", "count"],
+        data=histogram_data,
+    )
+    print(f"  → Recorded histogram for {len(today_prices)} sales on {latest_date}")
+
+    # Calculate sales histogram by grade for most recent day (half grades rounded down)
+    print("  → Calculating sales grade histogram...")
+    today_grades = today_sales["grade"].dropna().astype(int)  # Round down half grades
+    grade_counts = today_grades.value_counts().sort_index()
+
+    grade_histogram_data = [
+        [f"Grade {int(grade)}", int(count)] for grade, count in grade_counts.items()
+    ]
+    tracker.add_chart(
+        id="sales_grade_histogram",
+        title=f"Sales Grade Distribution ({latest_date})",
+        chart_type="bar",
+        columns=["grade", "count"],
+        data=grade_histogram_data,
+    )
+    print(
+        f"  → Recorded grade histogram for {len(today_grades)} sales on {latest_date}"
+    )
+
     # Calculate median days between sales for top 100 cards by sales volume
     print("  → Calculating median days between sales for top 100 cards...")
     top_100_ids = df["gemrate_id"].value_counts().head(100).index.tolist()
@@ -479,6 +555,28 @@ def run_step_3():
         data=concentration_data,
     )
     print(f"  → Recorded {len(concentration_data)} days of sales concentration data")
+
+    # Compare sales metrics: today vs 7 days ago vs 28 days ago
+    print("  → Building sales comparison table...")
+    comparison_dates = {
+        "Today": latest_date,
+        "7 Days Ago": latest_date - pd.Timedelta(days=7),
+        "28 Days Ago": latest_date - pd.Timedelta(days=28),
+    }
+    comparison_data = []
+    for label, comp_date in comparison_dates.items():
+        day_sales = recent_sales[recent_sales["date"].dt.date == comp_date]
+        volume = len(day_sales)
+        dollar_total = round(day_sales["price"].sum(), 2) if volume > 0 else 0
+        comparison_data.append([label, str(comp_date), volume, dollar_total])
+
+    tracker.add_table(
+        id="sales_comparison",
+        title="Sales Comparison: Today vs 7d vs 28d Ago",
+        columns=["period", "date", "volume", "dollar_total"],
+        data=comparison_data,
+    )
+    print("  → Recorded sales comparison table")
 
     # df = df.loc[df["seller_popularity"] >= 0.01]
     df = pd.concat([df, today], ignore_index=True)
