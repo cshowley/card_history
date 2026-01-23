@@ -444,6 +444,42 @@ def run_step_3():
         f"  → Recorded {len(sales_per_day)} days of sales data for integrity tracking"
     )
 
+    # Calculate median days between sales for top 100 cards by sales volume
+    print("  → Calculating median days between sales for top 100 cards...")
+    top_100_ids = df["gemrate_id"].value_counts().head(100).index.tolist()
+    top_100_df = df[df["gemrate_id"].isin(top_100_ids)].copy()
+    top_100_df = top_100_df.sort_values(["gemrate_id", "date"]).reset_index(drop=True)
+    top_100_df["prev_sale_date"] = top_100_df.groupby("gemrate_id")["date"].shift(1)
+    top_100_df["days_between"] = (
+        top_100_df["date"] - top_100_df["prev_sale_date"]
+    ).dt.days
+    days_between_all = top_100_df["days_between"].dropna()
+    if len(days_between_all) > 0:
+        median_days = days_between_all.median()
+        tracker.add_metric(
+            id="s3_median_days_between_top_100_sales",
+            title="Median Days Between Sales (Top 100 Cards)",
+            value=f"{median_days:.1f} days",
+        )
+        print(f"  → Median days between sales for top 100 cards: {median_days:.1f}")
+
+    # Calculate sales concentration per day (total sales vs unique cards)
+    print("  → Calculating sales concentration per day...")
+    concentration_data = []
+    for sale_date in sorted(sales_per_day.index):
+        day_sales = recent_sales[recent_sales["date"].dt.date == sale_date]
+        total_sales = len(day_sales)
+        unique_cards = day_sales["gemrate_id"].nunique()
+        concentration_data.append([str(sale_date), total_sales, unique_cards])
+
+    tracker.add_table(
+        id="sales_concentration_per_day",
+        title="Sales Concentration Per Day",
+        columns=["date", "total_sales", "unique_cards"],
+        data=concentration_data,
+    )
+    print(f"  → Recorded {len(concentration_data)} days of sales concentration data")
+
     # df = df.loc[df["seller_popularity"] >= 0.01]
     df = pd.concat([df, today], ignore_index=True)
     print(f"  → Total merged: {len(df)} rows")
