@@ -495,6 +495,7 @@ def run_step_3():
 
     hist_writer = None
     today_writer = None
+    first_time_sales_by_date = {}  # Track first-time sales per day
 
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -506,6 +507,20 @@ def run_step_3():
         batch_df, _ = s3_create_previous_sale_features(
             batch_df, constants.S3_N_SALES_BACK
         )
+
+        # Track first-time sales (cards with no previous sales) in last 28 days
+        if "prev_1_days_ago" in batch_df.columns:
+            first_time_mask = (
+                batch_df["prev_1_days_ago"].isna()
+                & batch_df["price"].notna()
+                & (batch_df["date"] >= cutoff_date)
+            )
+            first_time_df = batch_df[first_time_mask]
+            for sale_date in first_time_df["date"].dt.date:
+                first_time_sales_by_date[sale_date] = (
+                    first_time_sales_by_date.get(sale_date, 0) + 1
+                )
+
         batch_df, _ = s3_create_lookback_features(
             batch_df, constants.S3_WEEKS_BACK_LIST
         )
@@ -555,6 +570,23 @@ def run_step_3():
 
     print(f"Saved historical data to {constants.S3_HISTORICAL_DATA_FILE}")
     print(f"Saved today's data to {constants.S3_TODAY_DATA_FILE}")
+
+    # Add first-time sales per day chart to data integrity tracker
+    if first_time_sales_by_date:
+        sorted_dates = sorted(first_time_sales_by_date.keys())
+        first_time_chart_data = [
+            [str(d), int(first_time_sales_by_date[d])] for d in sorted_dates
+        ]
+        tracker.add_chart(
+            id="first_time_sales_per_day",
+            title="First-Time Sales Per Day (No Previous Sales)",
+            chart_type="line",
+            columns=["date", "first_time_sales"],
+            data=first_time_chart_data,
+        )
+        print(
+            f"  → Recorded {len(first_time_sales_by_date)} days of first-time sales data"
+        )
 
     # Data Integrity Tracking - Duration
     duration = time.time() - start_time
