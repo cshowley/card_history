@@ -205,11 +205,6 @@ def run_step_6():
     # Data Integrity Tracking
     duration = time.time() - start_time
     tracker.add_metric(
-        id="s6_neighbors_used",
-        title="Neighbors Per Card",
-        value=constants.S6_N_NEIGHBORS,
-    )
-    tracker.add_metric(
         id="s6_duration",
         title="Step 6 Duration",
         value=round(duration, 1),
