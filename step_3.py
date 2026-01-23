@@ -1,5 +1,6 @@
 import os
 import re
+import time
 
 import numpy as np
 import pandas as pd
@@ -392,6 +393,8 @@ def s3_load_today():
 
 def run_step_3():
     print("Starting Step 3: Feature Prep...")
+    start_time = time.time()
+
     ebay_df = s3_load_and_clean_ebay(constants.S1_EBAY_MARKET_FILE)
     pwcc_df = s3_load_and_clean_pwcc(constants.S1_PWCC_MARKET_FILE)
     today = s3_load_today()
@@ -552,3 +555,13 @@ def run_step_3():
 
     print(f"Saved historical data to {constants.S3_HISTORICAL_DATA_FILE}")
     print(f"Saved today's data to {constants.S3_TODAY_DATA_FILE}")
+
+    # Data Integrity Tracking - Duration
+    duration = time.time() - start_time
+    tracker.add_metric(
+        id="s3_duration",
+        title="Step 3 Duration",
+        value=f"{duration:.1f}s",
+    )
+
+    print("Step 3 Complete.")
