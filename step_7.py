@@ -51,6 +51,73 @@ def upper_bound_loss(y_true, y_pred):
     )
 
 
+def calculate_validation_mdape(input_file, best_params, tracker):
+    """
+    Trains a temporary model on a time-based train split and calculates
+    Median Absolute Percentage Error on the validation set for benchmarking.
+    The model is discarded after metric calculation.
+    """
+    print("Calculating validation MdAPE (time-based split)...")
+
+    df = pd.read_parquet(input_file)
+    df = df.dropna(subset=["price"])
+    df["grade"] = pd.to_numeric(df["grade"], errors="raise")
+    df["half_grade"] = pd.to_numeric(df["half_grade"], errors="raise")
+    df["seller_popularity"] = pd.to_numeric(df["seller_popularity"], errors="raise")
+    df = df[df.date >= datetime(2025, 9, 1)]
+
+    # Time-based split: sort by date and use most recent 20% for validation
+    df = df.sort_values("date").reset_index(drop=True)
+    split_idx = int(len(df) * 0.8)
+    train_df = df.iloc[:split_idx]
+    val_df = df.iloc[split_idx:]
+
+    print(f"  Train set: {len(train_df)} samples, Val set: {len(val_df)} samples")
+    print(f"  Train dates: {train_df['date'].min()} to {train_df['date'].max()}")
+    print(f"  Val dates: {val_df['date'].min()} to {val_df['date'].max()}")
+
+    exclude_cols = ["gemrate_id", "date", "price", "_row_id"]
+    feature_cols = [c for c in df.columns if c not in exclude_cols]
+
+    X_train = train_df[feature_cols]
+    y_train = train_df["price"]
+    X_val = val_df[feature_cols]
+    y_val = val_df["price"]
+
+    # Train temporary model
+    val_params = {k: v for k, v in best_params.items() if k != "objective"}
+    val_params["device"] = "cpu"  # Use CPU for validation model
+    temp_model = xgb.XGBRegressor(objective="reg:gamma")
+    temp_model.set_params(**val_params)
+    temp_model.fit(X_train, y_train)
+
+    # Predict on validation set
+    y_pred = temp_model.predict(X_val)
+
+    # Calculate Median Absolute Percentage Error
+    ape = np.abs(y_val.values - y_pred) / y_val.values * 100
+    mdape = np.median(ape)
+    mape = np.mean(ape)
+
+    print(f"  Validation MdAPE: {mdape:.2f}%")
+    print(f"  Validation MAPE: {mape:.2f}%")
+
+    tracker.add_metric(
+        id="s7_validation_mdape",
+        title="Validation MdAPE",
+        value=f"{mdape:.2f}%",
+    )
+    tracker.add_metric(
+        id="s7_validation_mape",
+        title="Validation MAPE",
+        value=f"{mape:.2f}%",
+    )
+
+    # Discard the temporary model
+    del temp_model
+    return mdape
+
+
 def get_best_params():
     """Finds the best hyperparameters from the model/results directory."""
     results_dir = "model/results"
@@ -126,6 +193,9 @@ def train_model():
         ".parquet", "_with_neighbors.parquet"
     )
     best_params = get_best_params()
+
+    # Calculate validation MdAPE for benchmarking (before full training)
+    calculate_validation_mdape(input_file, best_params, tracker)
 
     models_config = [
         {
