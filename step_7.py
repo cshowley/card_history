@@ -234,11 +234,6 @@ def train_model():
     # Data Integrity Tracking
     duration = time.time() - start_time
     tracker.add_metric(
-        id="s7_models_trained",
-        title="Models Trained",
-        value="3 (Gamma, Lower, Upper)",
-    )
-    tracker.add_metric(
         id="s7_duration",
         title="Step 7 Duration",
         value=f"{duration:.1f}s",
