@@ -38,14 +38,14 @@ def run_step_1():
 
     ##########
     # Calculate lower and upper date bounds for string prefix comparison (works for "YYYY-MM-DDTHH:MM:SS..." formats)
-    days_back = 7  # Adjustable: days for lower bound
-    upper_cutoff_date = datetime(2025, 12, 1)  # datetime.now()
-    lower_cutoff_date = upper_cutoff_date - timedelta(days=days_back)
-    lower_date_str = lower_cutoff_date.strftime("%Y-%m-%d")
-    upper_bound_str = (upper_cutoff_date + timedelta(days=1)).strftime(
-        "%Y-%m-%d"
-    )  # Exclusive upper for full day inclusion
-    print(f"Date range filter: >= '{lower_date_str}' and < '{upper_bound_str}'")
+    # days_back = 7  # Adjustable: days for lower bound
+    # upper_cutoff_date = datetime(2025, 12, 1)  # datetime.now()
+    # lower_cutoff_date = upper_cutoff_date - timedelta(days=days_back)
+    # lower_date_str = lower_cutoff_date.strftime("%Y-%m-%d")
+    # upper_bound_str = (upper_cutoff_date + timedelta(days=1)).strftime(
+    #     "%Y-%m-%d"
+    # )  # Exclusive upper for full day inclusion
+    # print(f"Date range filter: >= '{lower_date_str}' and < '{upper_bound_str}'")
     ##########
 
     print("Downloading eBay sales...")
@@ -59,8 +59,8 @@ def run_step_1():
                 ],
                 "item_data.date": {
                     "$exists": True,
-                    "$gte": lower_date_str,
-                    "$lt": upper_bound_str,
+                    # "$gte": lower_date_str,
+                    # "$lt": upper_bound_str,
                 },
                 "item_data.price": {"$exists": True},
                 "item_data.format": "auction",
@@ -97,8 +97,8 @@ def run_step_1():
                 ],
                 "api_response.soldDate": {
                     "$exists": True,
-                    "$gte": lower_date_str,
-                    "$lt": upper_bound_str,
+                    # "$gte": lower_date_str,
+                    # "$lt": upper_bound_str,
                 },
                 "api_response.purchasePrice": {"$exists": True},
                 "api_response.auctionType": {"$in": ["WEEKLY", "PREMIUM"]},

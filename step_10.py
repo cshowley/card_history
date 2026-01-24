@@ -28,39 +28,39 @@ def run_step_10():
 
     print(f"Loaded {len(df)} predictions.")
 
-    client = MongoClient(constants.S1_MONGO_URL)
-    db = client[constants.S1_DB_NAME]
+    # client = MongoClient(constants.S1_MONGO_URL)
+    # db = client[constants.S1_DB_NAME]
 
-    collection = db[collection_name]
+    # collection = db[collection_name]
 
-    print(f"Deleting all documents in '{collection_name}'...")
-    collection.delete_many({})
+    # print(f"Deleting all documents in '{collection_name}'...")
+    # collection.delete_many({})
 
-    batch_size = constants.S10_INSERTION_BATCH_SIZE
-    print(f"Upserting into MongoDB '{collection_name}' in batches of {batch_size}...")
+    # batch_size = constants.S10_INSERTION_BATCH_SIZE
+    # print(f"Upserting into MongoDB '{collection_name}' in batches of {batch_size}...")
 
     inserted_count = 0
 
-    for i in tqdm(range(0, len(df), batch_size), desc="Uploading Batches"):
-        batch = df.iloc[i : i + batch_size].copy()
-        records = batch.to_dict("records")
+    # for i in tqdm(range(0, len(df), batch_size), desc="Uploading Batches"):
+    #     batch = df.iloc[i : i + batch_size].copy()
+    #     records = batch.to_dict("records")
 
-        operations = []
-        for record in records:
-            filter_query = {
-                "gemrate_id": record["gemrate_id"],
-                "grading_company": record["grading_company"],
-                "grade": record["grade"],
-                "half_grade": record["half_grade"],
-            }
-            operations.append(ReplaceOne(filter_query, record, upsert=True))
+    #     operations = []
+    #     for record in records:
+    #         filter_query = {
+    #             "gemrate_id": record["gemrate_id"],
+    #             "grading_company": record["grading_company"],
+    #             "grade": record["grade"],
+    #             "half_grade": record["half_grade"],
+    #         }
+    #         operations.append(ReplaceOne(filter_query, record, upsert=True))
 
-        if operations:
-            collection.bulk_write(operations)
-            inserted_count += len(operations)
+    #     if operations:
+    #         collection.bulk_write(operations)
+    #         inserted_count += len(operations)
 
-    print("Creating index on 'gemrate_id'...")
-    collection.create_index("gemrate_id")
+    # print("Creating index on 'gemrate_id'...")
+    # collection.create_index("gemrate_id")
 
     # Data Integrity Tracking
     duration = time.time() - start_time

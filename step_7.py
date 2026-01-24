@@ -64,7 +64,6 @@ def calculate_validation_mdape(input_file, best_params, tracker):
     df["grade"] = pd.to_numeric(df["grade"], errors="raise")
     df["half_grade"] = pd.to_numeric(df["half_grade"], errors="raise")
     df["seller_popularity"] = pd.to_numeric(df["seller_popularity"], errors="raise")
-    df = df[df.date >= datetime(2025, 9, 1)]
 
     # Time-based split: sort by date and use most recent 20% for validation
     df = df.sort_values("date").reset_index(drop=True)
