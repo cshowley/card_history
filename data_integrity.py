@@ -17,8 +17,30 @@ import os
 from datetime import datetime, timezone
 from pymongo import MongoClient
 from dotenv import load_dotenv
+import numpy as np
 
 load_dotenv()
+
+
+def convert_numpy_types(obj):
+    """
+    Recursively convert numpy types to native Python types for MongoDB serialization.
+    """
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    else:
+        return obj
+
 
 # Database configuration
 DATABASE = "gemrate"
@@ -152,8 +174,8 @@ def save_to_mongo():
     # Use a fixed document ID so we always update the same document
     document_id = "pipeline_run_latest"
 
-    # Prepare the document
-    doc = tracker.get_data()
+    # Prepare the document and convert numpy types to native Python types
+    doc = convert_numpy_types(tracker.get_data())
     doc["_id"] = document_id
 
     # Upsert the document
