@@ -202,15 +202,33 @@ def run_step_5():
     # Data Integrity Tracking
     duration = time.time() - start_time
     unique_queries = results_df["gemrate_id"].nunique()
+    total_catalog_cards = num_queries
+    coverage_pct = round((unique_queries / total_catalog_cards) * 100, 2) if total_catalog_cards > 0 else 0.0
+
+    tracker.add_metric(
+        id="s5_total_catalog_cards",
+        title="Total Catalog Cards (Query Set)",
+        value=total_catalog_cards,
+    )
     tracker.add_metric(
         id="s5_cards_with_neighbors",
         title="Cards with Neighbors",
         value=unique_queries,
     )
     tracker.add_metric(
+        id="s5_catalog_coverage_pct",
+        title="Catalog Coverage (%)",
+        value=coverage_pct,
+    )
+    tracker.add_metric(
         id="s5_total_neighbor_pairs",
         title="Total Neighbor Pairs",
         value=len(results_df),
+    )
+    tracker.add_metric(
+        id="s5_db_size",
+        title="Database Size (Cards with Text + Price)",
+        value=len(db_ids),
     )
     tracker.add_metric(
         id="s5_duration",

@@ -630,104 +630,117 @@ def run_step_3():
     hist_writer = None
     today_writer = None
     first_time_sales_by_date = {}  # Track first-time sales per day
+    batch_loop_completed = False  # Flag to track if loop completed successfully
 
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    for i in tqdm(range(0, len(unique_ids), batch_size), desc="Processing Batches"):
-        batch_ids = unique_ids[i : i + batch_size]
-        batch_df = df[df["gemrate_id"].isin(batch_ids)].copy()
+    try:
+        for i in tqdm(range(0, len(unique_ids), batch_size), desc="Processing Batches"):
+            batch_ids = unique_ids[i : i + batch_size]
+            batch_df = df[df["gemrate_id"].isin(batch_ids)].copy()
 
-        batch_df, _ = s3_create_previous_sale_features(
-            batch_df, constants.S3_N_SALES_BACK
-        )
-
-        # Track first-time sales (cards with no previous sales) in last 28 days
-        if "prev_1_days_ago" in batch_df.columns:
-            first_time_mask = (
-                batch_df["prev_1_days_ago"].isna()
-                & batch_df["price"].notna()
-                & (batch_df["date"] >= cutoff_date)
+            batch_df, _ = s3_create_previous_sale_features(
+                batch_df, constants.S3_N_SALES_BACK
             )
-            first_time_df = batch_df[first_time_mask]
-            for sale_date in first_time_df["date"].dt.date:
-                first_time_sales_by_date[sale_date] = (
-                    first_time_sales_by_date.get(sale_date, 0) + 1
+
+            # Track first-time sales (cards with no previous sales) in last 28 days
+            if "prev_1_days_ago" in batch_df.columns:
+                first_time_mask = (
+                    batch_df["prev_1_days_ago"].isna()
+                    & batch_df["price"].notna()
+                    & (batch_df["date"] >= cutoff_date)
                 )
+                first_time_df = batch_df[first_time_mask]
+                for sale_date in first_time_df["date"].dt.date:
+                    first_time_sales_by_date[sale_date] = (
+                        first_time_sales_by_date.get(sale_date, 0) + 1
+                    )
 
-        batch_df, _ = s3_create_lookback_features(
-            batch_df, constants.S3_WEEKS_BACK_LIST
+            batch_df, _ = s3_create_lookback_features(
+                batch_df, constants.S3_WEEKS_BACK_LIST
+            )
+            batch_df, _ = s3_create_adjacent_grade_features(
+                batch_df, constants.S3_N_SALES_BACK
+            )
+
+            if index_df is not None:
+                batch_df = batch_df.merge(index_df, on="date", how="left")
+
+            if "week_start" in batch_df.columns:
+                batch_df = batch_df.drop("week_start", axis=1)
+
+            batch_df["date"] = pd.to_datetime(batch_df["date"])
+
+            today_mask = (batch_df["date"].dt.normalize() == today_date) & (
+                batch_df["price"].isna()
+            )
+            df_today = batch_df[today_mask]
+            df_hist = batch_df[~today_mask]
+
+            if not df_hist.empty:
+                table_hist = pa.Table.from_pandas(df_hist, preserve_index=False)
+                if hist_writer is None:
+                    hist_writer = pq.ParquetWriter(
+                        constants.S3_HISTORICAL_DATA_FILE, table_hist.schema
+                    )
+                hist_writer.write_table(table_hist)
+
+            if not df_today.empty:
+                table_today = pa.Table.from_pandas(df_today, preserve_index=False)
+                if today_writer is None:
+                    today_writer = pq.ParquetWriter(
+                        constants.S3_TODAY_DATA_FILE, table_today.schema
+                    )
+                today_writer.write_table(table_today)
+
+            del batch_df, df_hist, df_today
+            import gc
+
+            gc.collect()
+
+        batch_loop_completed = True  # Mark loop as completed successfully
+
+    finally:
+        # Always close writers and track metrics, even if loop crashed
+        if hist_writer:
+            hist_writer.close()
+        if today_writer:
+            today_writer.close()
+
+        print(f"Saved historical data to {constants.S3_HISTORICAL_DATA_FILE}")
+        print(f"Saved today's data to {constants.S3_TODAY_DATA_FILE}")
+
+        # Always track completion status
+        tracker.add_metric(
+            id="s3_batch_loop_completed",
+            title="Batch Loop Completed Successfully",
+            value=batch_loop_completed,
         )
-        batch_df, _ = s3_create_adjacent_grade_features(
-            batch_df, constants.S3_N_SALES_BACK
+
+        # Always add first-time sales per day chart (even if incomplete due to crash)
+        if first_time_sales_by_date:
+            sorted_dates = sorted(first_time_sales_by_date.keys())
+            first_time_chart_data = [
+                [str(d), int(first_time_sales_by_date[d])] for d in sorted_dates
+            ]
+            tracker.add_chart(
+                id="first_time_sales_per_day",
+                title="First-Time Sales Per Day (No Previous Sales)",
+                chart_type="line",
+                columns=["date", "first_time_sales"],
+                data=first_time_chart_data,
+            )
+            print(
+                f"  → Recorded {len(first_time_sales_by_date)} days of first-time sales data"
+            )
+
+        # Data Integrity Tracking - Duration
+        duration = time.time() - start_time
+        tracker.add_metric(
+            id="s3_duration",
+            title="Step 3 Duration",
+            value=round(duration, 1),
         )
-
-        if index_df is not None:
-            batch_df = batch_df.merge(index_df, on="date", how="left")
-
-        if "week_start" in batch_df.columns:
-            batch_df = batch_df.drop("week_start", axis=1)
-
-        batch_df["date"] = pd.to_datetime(batch_df["date"])
-
-        today_mask = (batch_df["date"].dt.normalize() == today_date) & (
-            batch_df["price"].isna()
-        )
-        df_today = batch_df[today_mask]
-        df_hist = batch_df[~today_mask]
-
-        if not df_hist.empty:
-            table_hist = pa.Table.from_pandas(df_hist, preserve_index=False)
-            if hist_writer is None:
-                hist_writer = pq.ParquetWriter(
-                    constants.S3_HISTORICAL_DATA_FILE, table_hist.schema
-                )
-            hist_writer.write_table(table_hist)
-
-        if not df_today.empty:
-            table_today = pa.Table.from_pandas(df_today, preserve_index=False)
-            if today_writer is None:
-                today_writer = pq.ParquetWriter(
-                    constants.S3_TODAY_DATA_FILE, table_today.schema
-                )
-            today_writer.write_table(table_today)
-
-        del batch_df, df_hist, df_today
-        import gc
-
-        gc.collect()
-
-    if hist_writer:
-        hist_writer.close()
-    if today_writer:
-        today_writer.close()
-
-    print(f"Saved historical data to {constants.S3_HISTORICAL_DATA_FILE}")
-    print(f"Saved today's data to {constants.S3_TODAY_DATA_FILE}")
-
-    # Add first-time sales per day chart to data integrity tracker
-    if first_time_sales_by_date:
-        sorted_dates = sorted(first_time_sales_by_date.keys())
-        first_time_chart_data = [
-            [str(d), int(first_time_sales_by_date[d])] for d in sorted_dates
-        ]
-        tracker.add_chart(
-            id="first_time_sales_per_day",
-            title="First-Time Sales Per Day (No Previous Sales)",
-            chart_type="line",
-            columns=["date", "first_time_sales"],
-            data=first_time_chart_data,
-        )
-        print(
-            f"  → Recorded {len(first_time_sales_by_date)} days of first-time sales data"
-        )
-
-    # Data Integrity Tracking - Duration
-    duration = time.time() - start_time
-    tracker.add_metric(
-        id="s3_duration",
-        title="Step 3 Duration",
-        value=round(duration, 1),
-    )
 
     print("Step 3 Complete.")

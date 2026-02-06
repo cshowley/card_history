@@ -1,3 +1,4 @@
+import os
 import time
 
 import numpy as np
@@ -241,11 +242,40 @@ def run_step_4():
     start_time = time.time()
     tracker = get_tracker()
 
+    # Validate input file exists and has data
+    input_path = constants.S3_HISTORICAL_DATA_FILE
+    if not os.path.exists(input_path):
+        tracker.add_error(f"Input file not found: {input_path}", step="step_4")
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    file_size_mb = round(os.path.getsize(input_path) / (1024 * 1024), 2)
+    tracker.add_metric(
+        id="s4_input_file_size_mb",
+        title="Step 4 Input File Size (MB)",
+        value=file_size_mb,
+    )
+
     df_sales = pd.read_parquet(
-        constants.S3_HISTORICAL_DATA_FILE,
+        input_path,
         columns=["gemrate_id", "grade", "date", "price"],
     )
     df_sales = df_sales.dropna(subset="price")
+
+    input_rows = len(df_sales)
+    tracker.add_metric(
+        id="s4_input_rows",
+        title="Step 4 Input Rows",
+        value=input_rows,
+    )
+
+    if input_rows == 0:
+        tracker.add_error("Historical data file is empty after dropping NaN prices.", step="step_4")
+        raise ValueError("Historical data file is empty after dropping NaN prices. Cannot proceed with Step 4.")
+
+    if input_rows < 1000:
+        warning_msg = f"Historical data has only {input_rows} rows (expected 1000+). Results may be unreliable."
+        tracker.add_error(warning_msg, step="step_4")
+        print(f"WARNING: {warning_msg}")
 
     df_norm = s4_normalize_grades(df_sales)
     _, X_windows, ids_map = s4_prepare_price_matrix(df_norm)

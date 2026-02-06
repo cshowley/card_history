@@ -94,6 +94,12 @@ def run_step_8():
     total_rows = 0
     batch_size = constants.S6_BATCH_SIZE
 
+    # Prediction stats accumulators
+    all_predictions = []
+    all_predictions_lower = []
+    all_predictions_upper = []
+    negative_predictions_count = 0
+
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
     for batch in tqdm(
@@ -133,6 +139,16 @@ def run_step_8():
         for col_name in models.keys():
             ident_df[col_name] = batch_results[col_name]
 
+        # Accumulate prediction stats
+        if "prediction" in batch_results:
+            all_predictions.extend(batch_results["prediction"].tolist())
+        if "prediction_lower" in batch_results:
+            all_predictions_lower.extend(batch_results["prediction_lower"].tolist())
+        if "prediction_upper" in batch_results:
+            all_predictions_upper.extend(batch_results["prediction_upper"].tolist())
+        if "prediction" in batch_results:
+            negative_predictions_count += int(np.sum(batch_results["prediction"] < 0))
+
         table = pa.Table.from_pandas(ident_df)
 
         if writer is None:
@@ -156,6 +172,84 @@ def run_step_8():
         title="Predictions Generated",
         value=total_rows,
     )
+
+    # Prediction distribution stats
+    if all_predictions:
+        preds_arr = np.array(all_predictions)
+        pred_min = float(np.min(preds_arr))
+        pred_max = float(np.max(preds_arr))
+        pred_mean = float(np.mean(preds_arr))
+        pred_median = float(np.median(preds_arr))
+        pred_std = float(np.std(preds_arr))
+
+        tracker.add_metric(
+            id="s8_prediction_min",
+            title="Prediction Min",
+            value=round(pred_min, 4),
+        )
+        tracker.add_metric(
+            id="s8_prediction_max",
+            title="Prediction Max",
+            value=round(pred_max, 4),
+        )
+        tracker.add_metric(
+            id="s8_prediction_mean",
+            title="Prediction Mean",
+            value=round(pred_mean, 4),
+        )
+        tracker.add_metric(
+            id="s8_prediction_median",
+            title="Prediction Median",
+            value=round(pred_median, 4),
+        )
+        tracker.add_metric(
+            id="s8_prediction_std",
+            title="Prediction Std Dev",
+            value=round(pred_std, 4),
+        )
+        tracker.add_metric(
+            id="s8_negative_predictions_count",
+            title="Negative Predictions Count",
+            value=negative_predictions_count,
+        )
+
+        # Model collapse detection
+        if pred_min == pred_max:
+            tracker.add_error(
+                f"Model collapse detected: all predictions are {pred_min}",
+                step="step_8",
+            )
+            print(f"ERROR: Model collapse detected! All predictions = {pred_min}")
+
+        if negative_predictions_count > 0:
+            print(f"WARNING: {negative_predictions_count} negative predictions detected.")
+
+    if all_predictions_lower:
+        lower_arr = np.array(all_predictions_lower)
+        tracker.add_metric(
+            id="s8_prediction_lower_min",
+            title="Prediction Lower Min",
+            value=round(float(np.min(lower_arr)), 4),
+        )
+        tracker.add_metric(
+            id="s8_prediction_lower_max",
+            title="Prediction Lower Max",
+            value=round(float(np.max(lower_arr)), 4),
+        )
+
+    if all_predictions_upper:
+        upper_arr = np.array(all_predictions_upper)
+        tracker.add_metric(
+            id="s8_prediction_upper_min",
+            title="Prediction Upper Min",
+            value=round(float(np.min(upper_arr)), 4),
+        )
+        tracker.add_metric(
+            id="s8_prediction_upper_max",
+            title="Prediction Upper Max",
+            value=round(float(np.max(upper_arr)), 4),
+        )
+
     tracker.add_metric(
         id="s8_duration",
         title="Step 8 Duration",

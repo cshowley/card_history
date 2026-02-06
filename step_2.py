@@ -94,12 +94,32 @@ def run_step_2():
 
     print("Generating embeddings...")
 
-    embeddings = model.encode(
-        df["embedding_text"].tolist(),
-        batch_size=256,
-        show_progress_bar=True,
-        convert_to_numpy=True,
+    input_rows = len(df)
+    tracker.add_metric(
+        id="s2_input_rows",
+        title="Step 2 Input Rows",
+        value=input_rows,
     )
+
+    try:
+        embeddings = model.encode(
+            df["embedding_text"].tolist(),
+            batch_size=256,
+            show_progress_bar=True,
+            convert_to_numpy=True,
+        )
+    except Exception as e:
+        tracker.add_error(
+            f"model.encode() failed after loading {input_rows} rows: {e}",
+            step="step_2",
+        )
+        tracker.add_metric(
+            id="s2_embedding_failed",
+            title="Embedding Failed",
+            value=True,
+        )
+        print(f"ERROR: Embedding generation failed: {e}")
+        raise
 
     df["embedding_vector"] = list(embeddings)
     df["gemrate_id"] = df["GEMRATE_ID"]
@@ -116,6 +136,11 @@ def run_step_2():
         id="s2_cards_embedded",
         title="Cards Embedded",
         value=len(output_df),
+    )
+    tracker.add_metric(
+        id="s2_embedding_dim",
+        title="Embedding Dimension",
+        value=embedding_dim,
     )
     tracker.add_metric(
         id="s2_duration",
