@@ -23,3 +23,8 @@ dependencies = [
     "faiss-gpu-cu12>=1.13.0 ; sys_platform == 'linux'",
     "faiss-cpu>=1.13.0 ; sys_platform == 'darwin'",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
