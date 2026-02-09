@@ -128,9 +128,6 @@ def run_step_1():
 
     # Data Integrity Tracking
     duration = time.time() - start_time
-    ebay_count = len(ebay_df)
-    pwcc_count = len(pwcc_df)
-    total_count = ebay_count + pwcc_count
 
     # Count sales before 9/1/2025
     cutoff_date = datetime(2025, 9, 1)
@@ -156,8 +153,6 @@ def run_step_1():
         value=sales_before_cutoff,
     )
 
-    ebay_count = ebay_df.shape[0]
-    pwcc_count = pwcc_df.shape[0]
     # Drop sales before 9/1/2025
     if sales_before_cutoff > 0:
         ebay_df["tmp_dates"] = ebay_dates
@@ -184,6 +179,11 @@ def run_step_1():
     ebay_df.to_csv(constants.S1_EBAY_MARKET_FILE, index=False)
     pwcc_df.to_csv(constants.S1_PWCC_MARKET_FILE, index=False)
 
+    # All counts computed after cutoff filtering so metrics are consistent
+    ebay_count = len(ebay_df)
+    pwcc_count = len(pwcc_df)
+    total_count = ebay_count + pwcc_count
+
     tracker.add_metric(
         id="s1_total_records",
         title="Total Records Downloaded",
@@ -193,13 +193,13 @@ def run_step_1():
     tracker.add_metric(
         id="s1_ebay_records",
         title="Ebay Records Downloaded",
-        value=ebay_df.shape[0]
+        value=ebay_count,
     )
 
     tracker.add_metric(
         id="s1_pwcc_records",
         title="PWCC Records Downloaded",
-        value=pwcc_df.shape[0]
+        value=pwcc_count,
     )
 
     # Anomaly detection - eBay bid counts
@@ -334,6 +334,9 @@ def run_step_1():
 
 
     # Data freshness tracking
+    most_recent_ebay = pd.NaT
+    most_recent_pwcc = pd.NaT
+
     if "item_data.date" in ebay_df.columns and len(ebay_df) > 0:
         ebay_dates_fresh = pd.to_datetime(ebay_df["item_data.date"], errors="coerce")
         most_recent_ebay = ebay_dates_fresh.max()
@@ -359,9 +362,9 @@ def run_step_1():
 
     # Days since last sale across both sources
     all_recent = []
-    if "most_recent_ebay" in dir() and pd.notna(most_recent_ebay):
+    if pd.notna(most_recent_ebay):
         all_recent.append(most_recent_ebay)
-    if "most_recent_pwcc" in dir() and pd.notna(most_recent_pwcc):
+    if pd.notna(most_recent_pwcc):
         all_recent.append(most_recent_pwcc)
     if all_recent:
         most_recent_overall = max(all_recent)

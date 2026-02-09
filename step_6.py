@@ -104,7 +104,6 @@ def s6_process_chunk(chunk_df, df_neighbors, neighbor_sales, index_series):
             )
 
     chunk_result = pd.DataFrame(feature_data)
-    chunk_result = pd.DataFrame(feature_data)
     chunk_result = chunk_result.reset_index()
     return chunk_result
 

@@ -1,6 +1,6 @@
 # Data Integrity Metrics Summary
 # All metrics tracked across the card_history ML pipeline
-# Generated: 2026-02-06
+# Updated: 2026-02-08
 
 ================================================================================
 PIPELINE LEVEL (main.py)
@@ -21,7 +21,7 @@ STEP 1: DATA DOWNLOAD (step_1.py)
 ================================================================================
 
 Metrics:
-  - s1_total_records                Total Records Downloaded (eBay + PWCC combined)
+  - s1_total_records                Total Records Downloaded (eBay + PWCC combined, after cutoff filtering)
   - s1_ebay_records                 eBay Records Downloaded (after cutoff filtering)
   - s1_pwcc_records                 PWCC Records Downloaded (after cutoff filtering)
   - s1_sales_before_sep_2025        Count of sales with dates before 9/1/2025
@@ -67,13 +67,13 @@ Metrics:
   - s2_input_rows               Step 2 Input Rows (catalog rows after dedup/cleaning)
   - s2_empty_text_count          Count of cards with empty embedding text after concatenation
   - s2_avg_text_length           Average character length of embedding_text
+  - s2_embedding_failed          Boolean True if model.encode() throws an exception (conditional)
   - s2_cards_embedded            Cards Embedded (rows saved to output)
   - s2_embedding_dim             Embedding Dimension (e.g., 1024 for BGE-M3)
   - s2_duration                  Step 2 Duration in seconds
 
 Errors (conditional):
-  - s2_embedding_failed          Boolean True if model.encode() throws an exception
-  - Error message logged if embedding generation fails
+  - Error message logged via add_error if embedding generation fails
 
 ================================================================================
 STEP 3: FEATURE PREP (step_3.py)
@@ -228,10 +228,10 @@ Notes:
 TOTAL METRICS COUNT
 ================================================================================
 
-  Metrics:    54  (scalar values: counts, percentages, durations, timestamps)
+  Metrics:    64  (scalar values: counts, percentages, durations, timestamps)
   Tables:      7  (structured row/column data)
   Charts:      8  (line charts, bar charts)
-  Errors:      5  (conditional error tracking points)
+  Errors:      6  (conditional error tracking points)
 
 All metrics are collected by the DataIntegrityTracker singleton and saved to
 the 'data_integrity' MongoDB collection at the end of the pipeline run
