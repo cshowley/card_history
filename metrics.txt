@@ -1,0 +1,308 @@
+# Additional Data Integrity Tracking Metrics for card_history Pipeline
+
+## Overview
+This document outlines proposed data integrity tracking metrics that could be added to each step_*.py file to improve observability, debugging capabilities, and data quality assurance throughout the ML pipeline.
+
+---
+
+## Step 1: Data Download (step_1.py)
+
+### Suggested Additions:
+
+1. **Duplicate Detection**
+   - Metric: `s1_ebay_duplicates` / `s1_pwcc_duplicates` - Count of duplicate sales (same _id appearing multiple times)
+   - Rationale: MongoDB aggregation pipelines can return duplicates if source data has issues; this would catch upstream data problems
+
+2. **Date Range Validation**
+   - Metric: `s1_future_dates_count` - Count of sales with dates in the future
+   - Metric: `s1_ancient_dates_count` - Count of sales with dates before 2020 (likely data entry errors)
+   - Chart: `s1_date_distribution` - Histogram of sales by month to spot gaps or anomalies
+
+3. **Price Outlier Detection**
+   - Metric: `s1_extreme_prices_ebay` / `s1_extreme_prices_pwcc` - Count of prices outside reasonable bounds (<$0.01 or >$100K)
+   - Table: `s1_top_prices` - Top 10 highest prices as sanity check
+
+4. **Data Freshness**
+   - Metric: `s1_most_recent_sale_date` - Timestamp of the most recent sale found
+   - Metric: `s1_days_since_last_sale` - Days between now and most recent sale (alerts if pipeline is stale)
+
+5. **ID Quality**
+   - Metric: `s1_universal_id_coverage` - % of records with universal_gemrate_id vs gemrate_id only
+   - Rationale: Universal IDs enable cross-marketplace deduplication; tracking coverage ensures migration progress
+
+6. **Grading Company Distribution**
+   - Chart: `s1_grading_company_dist` - Pie chart of PSA/CGC/BGS/Unknown distribution
+   - Metric: `s1_unknown_grading_company` - Count of records with unrecognized grading company
+
+---
+
+## Step 2: Text Embedding (step_2.py)
+
+### Suggested Additions:
+
+1. **Text Quality Metrics**
+   - Metric: `s2_empty_text_fields` - Count of cards where all embedding fields are empty after concatenation
+   - Metric: `s2_avg_text_length` - Average character length of embedding_text
+   - Metric: `s2_text_length_distribution` - Histogram of text lengths (spot truncated data)
+
+2. **Catalog Completeness**
+   - Table: `s2_missing_required_fields` - Breakdown by field (YEAR, SET_NAME, NAME, CARD_NUMBER, PARALLEL)
+   - Metric: `s2_duplicate_gemrate_ids` - Count of duplicate GEMRATE_IDs in catalog (data quality issue)
+
+3. **Embedding Validation**
+   - Metric: `s2_zero_vectors` - Count of embeddings that are all zeros (model failure indicator)
+   - Metric: `s2_embedding_dim` - Dimension of generated embeddings (sanity check)
+   - Metric: `s2_null_embeddings` - Count of NaN/Inf values in embeddings
+
+4. **Processing Health**
+   - Chart: `s2_batch_processing_times` - Time per batch to detect slowdowns
+   - Metric: `s2_memory_usage_mb` - Peak memory usage during embedding generation
+
+---
+
+## Step 3: Feature Prep (step_3.py)
+
+### Suggested Additions:
+
+1. **Grade Validation**
+   - Metric: `s3_unparseable_grades` - Count of grade values that couldn't be cleaned
+   - Chart: `s3_grade_distribution` - Distribution of final numeric grades (1-11)
+   - Metric: `s3_rare_grades` - Count of grades outside normal range (e.g., < 7 or > 11)
+
+2. **Price Data Quality**
+   - Metric: `s3_negative_prices` - Count of negative price values
+   - Metric: `s3_zero_prices` - Count of zero-price sales (should be filtered)
+   - Metric: `s3_price_volatility` - Coefficient of variation in prices per grade
+
+3. **Temporal Integrity**
+   - Metric: `s3_out_of_order_sales` - Count of cases where prev_1_date > current date (data error)
+   - Chart: `s3_feature_null_rates` - Null rate for each feature column over time
+   - Metric: `s3_lookback_feature_coverage` - % of records with valid lookback features
+
+4. **Neighbor Data Quality (Pre-merge)**
+   - Metric: `s3_cards_with_insufficient_history` - Count of cards with fewer than N historical sales
+   - Metric: `s3_seller_diversity` - Count of unique sellers in dataset (monopoly detection)
+
+5. **Feature Correlation Monitoring**
+   - Metric: `s3_high_correlation_pairs` - Pairs of features with correlation > 0.95 (redundancy alert)
+   - Rationale: Detect if feature engineering creates redundant columns
+
+---
+
+## Step 4: Price Embedding (step_4.py)
+
+### Suggested Additions:
+
+1. **Training Health**
+   - Chart: `s4_loss_curve` - Training and validation loss per epoch
+   - Metric: `s4_final_val_loss` - Final validation loss value
+   - Metric: `s4_epochs_early_stopped` - How many epochs before early stopping triggered
+
+2. **Embedding Quality**
+   - Metric: `s4_price_vector_variance` - Variance statistics of generated price vectors
+   - Metric: `s4_dead_neurons` - Count of embeddings with near-zero variance (model collapse indicator)
+   - Chart: `s4_embedding_pca` - 2D PCA projection of price vectors for visualization
+
+3. **Data Coverage**
+   - Metric: `s4_cards_below_min_windows` - Count of cards excluded due to insufficient time windows
+   - Metric: `s4_window_coverage_ratio` - % of available time windows actually used
+
+4. **Normalization Integrity**
+   - Table: `s4_grade_multipliers` - Multipliers calculated per grade (sanity check values)
+   - Metric: `s4_extreme_multipliers` - Count of multipliers outside [0.1, 10] range (data issue)
+
+---
+
+## Step 5: Neighbor Search (step_5.py)
+
+### Suggested Additions:
+
+1. **Search Quality**
+   - Metric: `s5_avg_neighbor_similarity` - Average cosine similarity score of top neighbors
+   - Chart: `s5_similarity_distribution` - Distribution of similarity scores
+   - Metric: `s5_low_similarity_neighbors` - Count of neighbors with similarity < 0.5
+
+2. **Coverage Analysis**
+   - Metric: `s5_orphan_queries` - Count of queries with no neighbors found
+   - Metric: `s5_text_only_matches` - Count of matches where price embedding was missing
+   - Metric: `s5_price_only_matches` - Count of matches where text embedding was missing
+
+3. **ID Intersection Health**
+   - Table: `s5_id_coverage_breakdown` - Count of IDs with text only / price only / both / neither
+   - Metric: `s5_coverage_gap` - % of catalog IDs missing from neighbor search database
+
+4. **Batch Processing**
+   - Chart: `s5_batch_processing_times` - Time per batch during similarity computation
+   - Metric: `s5_gpu_memory_peak` - Peak GPU memory usage during search
+
+---
+
+## Step 6: Neighbor Features (step_6.py)
+
+### Suggested Additions:
+
+1. **Neighbor Feature Coverage**
+   - Metric: `s6_null_neighbor_price_rate` - % of neighbor_price columns that are null
+   - Metric: `s6_avg_neighbors_with_sales` - Average number of neighbors that have historical sales
+   - Chart: `s6_neighbor_availability` - Distribution of how many neighbors have data per record
+
+2. **Temporal Validity**
+   - Metric: `s6_future_neighbor_sales` - Count of neighbor sales that occurred AFTER the query date (data error)
+   - Metric: `s6_stale_neighbor_data` - Count of records where all neighbor sales are > 90 days old
+
+3. **Price Reasonableness**
+   - Metric: `s6_neighbor_price_variance` - Variance in prices across neighbors for same card/grade
+   - Table: `s6_extreme_neighbor_price_gaps` - Cases where neighbor prices differ by > 10x
+
+4. **Merge Integrity**
+   - Metric: `s6_rows_lost_in_merge` - Count of rows dropped during left joins
+   - Metric: `s6_feature_column_count` - Total feature columns generated (schema drift detection)
+
+5. **Index Data Quality**
+   - Metric: `s6_missing_index_prices` - % of records where index_price is null
+   - Chart: `s6_index_coverage` - Index coverage over time
+
+---
+
+## Step 7: Model Training (step_7.py)
+
+### Suggested Additions:
+
+1. **Training Stability**
+   - Chart: `s7_loss_curves_by_model` - Training loss curves for gamma/lower/upper models
+   - Metric: `s7_convergence_epochs` - Epochs to reach within 1% of final loss
+   - Metric: `s7_training_divergence` - Boolean flag if loss increased significantly
+
+2. **Validation Deep Dive**
+   - Table: `s7_error_by_grade` - MdAPE broken down by grade (detect grade-specific issues)
+   - Table: `s7_error_by_grading_company` - MdAPE by PSA/CGC/BGS
+   - Chart: `s7_residual_distribution` - Distribution of prediction residuals
+
+3. **Feature Importance**
+   - Table: `s7_top_features` - Top 20 most important features per model
+   - Metric: `s7_neighbor_feature_importance` - Aggregate importance of neighbor_* features vs others
+
+4. **Model Parameter Tracking**
+   - Metric: `s7_model_size_mb` - Size of saved model files
+   - Metric: `s7_hyperparameters_hash` - Hash of hyperparameters used (reproducibility)
+
+5. **Data Leakage Detection**
+   - Metric: `s7_train_val_overlap` - Count of gemrate_id+grade pairs appearing in both train and validation
+   - Rationale: Time-based split should prevent this, but worth monitoring
+
+---
+
+## Step 8: Inference (step_8.py)
+
+### Suggested Additions:
+
+1. **Prediction Distribution**
+   - Chart: `s8_prediction_distribution` - Histogram of predicted prices
+   - Metric: `s8_negative_predictions` - Count of negative price predictions (model failure)
+   - Metric: `s8_extreme_predictions` - Count of predictions > $100K or < $0.01
+
+2. **Confidence Interval Quality**
+   - Metric: `s8_invalid_intervals` - Count where lower > upper (constraint violation)
+   - Metric: `s8_avg_interval_width` - Average width of prediction intervals
+   - Chart: `s8_interval_width_by_grade` - Interval width distribution by grade
+
+3. **Input Feature Drift**
+   - Table: `s8_feature_statistics` - Mean/std of key features vs training time
+   - Metric: `s8_feature_drift_score` - Population Stability Index for feature distributions
+   - Rationale: Detect if today's data is fundamentally different from training data
+
+4. **GPU Utilization**
+   - Chart: `s8_gpu_utilization` - GPU utilization % over inference time
+   - Metric: `s8_inference_throughput` - Predictions per second
+
+5. **Model Agreement**
+   - Metric: `s8_model_disagreement` - Cases where gamma prediction is outside [lower, upper]
+
+---
+
+## Step 9: QA & Re-sorting (step_9.py)
+
+### Suggested Additions:
+
+1. **Monotonicity Violations**
+   - Table: `s9_monotonicity_violations_by_card` - Cards with violations before fixing
+   - Metric: `s9_violations_by_grade` - Count of violations per grade level
+   - Chart: `s9_violation_severity` - Distribution of violation magnitudes
+
+2. **Price Jump Analysis**
+   - Metric: `s9_large_price_jumps` - Count of cards with > 50% price change from recent sale
+   - Table: `s9_suspicious_predictions` - Top 20 predictions with highest ratio to recent price
+   - Rationale: Flag potential model errors or market anomalies
+
+3. **Sort Validation**
+   - Metric: `s9_post_sort_violations` - Count of monotonicity violations AFTER fixing (should be 0)
+   - Metric: `s9_sort_correction_magnitude` - Average adjustment made to fix violations
+
+4. **Spot Check Coverage**
+   - Metric: `s9_spot_check_coverage` - % of predictions with matching recent sales
+   - Metric: `s9_avg_days_since_sale` - Average age of "recent" sales used in spot check
+
+---
+
+## Step 10: Upload (step_10.py)
+
+### Suggested Additions:
+
+1. **Upload Validation**
+   - Metric: `s10_upload_success_rate` - % of batches successfully uploaded
+   - Metric: `s10_mongo_write_errors` - Count of write errors from MongoDB
+   - Metric: `s10_documents_modified` - Count of existing documents updated (vs inserted)
+
+2. **Data Consistency**
+   - Metric: `s10_final_record_count` - Total documents in collection after upload
+   - Table: `s10_grade_company_coverage` - Final count by grade/company combination
+
+3. **Index Health**
+   - Metric: `s10_index_build_time` - Time to build indexes
+   - Metric: `s10_duplicate_keys_rejected` - Count of duplicates rejected during upsert
+
+---
+
+## Cross-Cutting Concerns
+
+### Pipeline-Level Metrics (could be tracked in main.py)
+
+1. **End-to-End Timing**
+   - Chart: `pipeline_step_durations` - Duration of each step over multiple runs
+   - Metric: `pipeline_total_duration` - Total pipeline execution time
+
+2. **Data Volume Tracking**
+   - Chart: `pipeline_record_counts` - Records at each stage (funnel analysis)
+   - Metric: `pipeline_funnel_loss` - % of records lost between steps
+
+3. **Error Aggregation**
+   - Table: `pipeline_errors_by_step` - Error counts per step
+   - Metric: `pipeline_success_rate` - % of steps completing without errors
+
+4. **Reproducibility**
+   - Metric: `pipeline_git_commit` - Git commit hash of code being run
+   - Metric: `pipeline_data_version` - Version/date of source data
+
+---
+
+## Implementation Priority
+
+### High Priority (Critical Data Quality)
+1. Step 1: Duplicate detection, price outliers, date range validation
+2. Step 3: Grade validation, temporal integrity checks
+3. Step 7: Validation metrics by grade/company, training stability
+4. Step 8: Prediction distribution, negative predictions
+5. Step 9: Monotonicity violations, price jump analysis
+
+### Medium Priority (Debugging/Optimization)
+1. Step 2: Text quality metrics, embedding validation
+2. Step 4: Training health metrics, embedding quality
+3. Step 5: Search quality metrics, coverage analysis
+4. Step 6: Neighbor feature coverage, temporal validity
+5. Step 10: Upload validation metrics
+
+### Low Priority (Nice to Have)
+1. Cross-cutting pipeline metrics
+2. GPU utilization tracking
+3. Feature importance tracking
+4. PCA visualization data

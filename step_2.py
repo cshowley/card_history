@@ -101,6 +101,20 @@ def run_step_2():
         value=input_rows,
     )
 
+    # Text quality metrics
+    empty_text_count = int((df["embedding_text"].str.strip() == "").sum())
+    avg_text_length = round(df["embedding_text"].str.len().mean(), 1)
+    tracker.add_metric(
+        id="s2_empty_text_count",
+        title="Empty Embedding Text Count",
+        value=empty_text_count,
+    )
+    tracker.add_metric(
+        id="s2_avg_text_length",
+        title="Avg Embedding Text Length",
+        value=avg_text_length,
+    )
+
     try:
         embeddings = model.encode(
             df["embedding_text"].tolist(),

@@ -33,6 +33,8 @@ def run_step_9():
 
     target_cols = [c for c in target_cols if c in df.columns]
     total_groups = len(df.groupby(group_cols))
+    tracker.add_metric(id="s9_total_groups", title="Total Grade/Company Groups", value=total_groups)
+
     for col in target_cols:
         print(f"  Processing {col}...")
 
@@ -45,6 +47,13 @@ def run_step_9():
             f"    Found {violation_counts} / {total_groups} groups violating monotonicity."
         )
 
+        if col == "prediction":
+            tracker.add_metric(
+                id="s9_monotonicity_violations_prediction",
+                title="Monotonicity Violations (prediction)",
+                value=int(violation_counts),
+            )
+
         df[col] = df.groupby(group_cols)[col].transform(lambda x: np.sort(x.values))
 
     lower = np.minimum(df["prediction_lower"], df["prediction_upper"])
@@ -52,6 +61,19 @@ def run_step_9():
     df["prediction_lower"] = lower
     df["prediction_upper"] = upper
     df["prediction"] = (df["prediction_lower"] + df["prediction_upper"]) / 2
+
+    # Validate post-sort: check remaining violations on prediction column
+    if "prediction" in df.columns:
+        post_violations = (
+            df.groupby(group_cols)["prediction"]
+            .apply(lambda x: np.any(x.values[:-1] > x.values[1:]))
+            .sum()
+        )
+        tracker.add_metric(
+            id="s9_post_sort_violations",
+            title="Post-Sort Violations (should be 0)",
+            value=int(post_violations),
+        )
 
     print(f"Saving sorted predictions to {output_file}...")
 

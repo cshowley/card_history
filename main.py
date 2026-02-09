@@ -15,6 +15,8 @@ from data_integrity import get_tracker, save_to_mongo
 
 if __name__ == "__main__":
     # Track pipeline start time
+    import time as _time
+    _pipeline_start = _time.time()
     tracker = get_tracker()
     tracker.add_metric(
         id="pipeline_start_time",
@@ -88,6 +90,19 @@ if __name__ == "__main__":
         title="Pipeline Step Summary",
         columns=["Step", "Status"],
         data=step_results,
+    )
+
+    # Track pipeline end time and total duration
+    tracker.add_metric(
+        id="pipeline_end_time",
+        title="Pipeline Ended",
+        value=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    )
+    pipeline_duration = round(_time.time() - _pipeline_start, 1)
+    tracker.add_metric(
+        id="pipeline_total_duration",
+        title="Pipeline Total Duration (sec)",
+        value=pipeline_duration,
     )
 
     # Save data integrity metrics to MongoDB

@@ -145,6 +145,7 @@ def run_step_6():
     df_sales_lookup = df_sales_lookup.dropna()
     df_sales_lookup["neighbor_id"] = df_sales_lookup["neighbor_id"].astype(str)
 
+    file_row_counts = {}
     for file in [constants.S3_HISTORICAL_DATA_FILE, constants.S3_TODAY_DATA_FILE]:
         output_file = file.replace(".parquet", "_with_neighbors.parquet")
 
@@ -202,8 +203,22 @@ def run_step_6():
         else:
             print(f"No data processed for {file}")
 
+        file_row_counts[os.path.basename(file)] = total_rows
+
     # Data Integrity Tracking
     duration = time.time() - start_time
+    hist_basename = os.path.basename(constants.S3_HISTORICAL_DATA_FILE)
+    today_basename = os.path.basename(constants.S3_TODAY_DATA_FILE)
+    tracker.add_metric(
+        id="s6_historical_rows_output",
+        title="Historical Rows with Neighbors",
+        value=file_row_counts.get(hist_basename, 0),
+    )
+    tracker.add_metric(
+        id="s6_today_rows_output",
+        title="Today Rows with Neighbors",
+        value=file_row_counts.get(today_basename, 0),
+    )
     tracker.add_metric(
         id="s6_duration",
         title="Step 6 Duration",

@@ -333,6 +333,62 @@ def run_step_1():
         )
 
 
+    # Data freshness tracking
+    if "item_data.date" in ebay_df.columns and len(ebay_df) > 0:
+        ebay_dates_fresh = pd.to_datetime(ebay_df["item_data.date"], errors="coerce")
+        most_recent_ebay = ebay_dates_fresh.max()
+        if pd.notna(most_recent_ebay):
+            tracker.add_metric(
+                id="s1_most_recent_ebay_date",
+                title="Most Recent eBay Sale Date",
+                value=str(most_recent_ebay.date()),
+            )
+
+    if "api_response.soldDate" in pwcc_df.columns and len(pwcc_df) > 0:
+        pwcc_dates_fresh = pd.to_datetime(
+            pwcc_df["api_response.soldDate"].str.replace(r" [A-Z]{3,4}$", "", regex=True),
+            errors="coerce",
+        )
+        most_recent_pwcc = pwcc_dates_fresh.max()
+        if pd.notna(most_recent_pwcc):
+            tracker.add_metric(
+                id="s1_most_recent_pwcc_date",
+                title="Most Recent PWCC Sale Date",
+                value=str(most_recent_pwcc.date()),
+            )
+
+    # Days since last sale across both sources
+    all_recent = []
+    if "most_recent_ebay" in dir() and pd.notna(most_recent_ebay):
+        all_recent.append(most_recent_ebay)
+    if "most_recent_pwcc" in dir() and pd.notna(most_recent_pwcc):
+        all_recent.append(most_recent_pwcc)
+    if all_recent:
+        most_recent_overall = max(all_recent)
+        days_since = (pd.Timestamp.now() - most_recent_overall).days
+        tracker.add_metric(
+            id="s1_days_since_last_sale",
+            title="Days Since Last Sale",
+            value=days_since,
+        )
+
+    # Price outlier detection
+    extreme_count = 0
+    if "item_data.price" in ebay_df.columns and len(ebay_df) > 0:
+        ebay_prices = pd.to_numeric(
+            ebay_df["item_data.price"].astype(str).str.extract(r"(\d+\.?\d*)")[0],
+            errors="coerce",
+        )
+        extreme_count += int(((ebay_prices < 0.01) | (ebay_prices > 100000)).sum())
+    if "api_response.purchasePrice" in pwcc_df.columns and len(pwcc_df) > 0:
+        pwcc_prices = pd.to_numeric(pwcc_df["api_response.purchasePrice"], errors="coerce")
+        extreme_count += int(((pwcc_prices < 0.01) | (pwcc_prices > 100000)).sum())
+    tracker.add_metric(
+        id="s1_extreme_prices_count",
+        title="Extreme Prices (<$0.01 or >$100K)",
+        value=extreme_count,
+    )
+
     tracker.add_metric(
         id="s1_duration",
         title="Step 1 Duration",

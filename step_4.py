@@ -88,7 +88,8 @@ def s4_prepare_price_matrix(df):
 
     pivot_df = pivot_df.resample("W").mean()
     pivot_df = pivot_df.ffill(limit=8)
-    print("ids before drop", df["gemrate_id"].nunique())
+    ids_before_drop = df["gemrate_id"].nunique()
+    print("ids before drop", ids_before_drop)
     pivot_df = pivot_df.dropna(axis=1)
     print(f"Price Matrix Shape after cleaning: {pivot_df.shape}")
 
@@ -101,7 +102,13 @@ def s4_prepare_price_matrix(df):
 
     data_values = returns.values
     card_ids = returns.columns
-    print("ids after drop", len(set(card_ids)))
+    ids_after_drop = len(set(card_ids))
+    print("ids after drop", ids_after_drop)
+
+    # Track ID counts
+    tracker = get_tracker()
+    tracker.add_metric(id="s4_ids_before_drop", title="Card IDs Before Drop", value=ids_before_drop)
+    tracker.add_metric(id="s4_ids_after_drop", title="Card IDs After Drop", value=ids_after_drop)
     if data_values.shape[0] < constants.S4_WINDOW_SIZE:
         print("Not enough time points for windowing.")
         return pivot_df, [], []
@@ -187,6 +194,11 @@ def s4_train_and_extract(X_data, ids_map):
     print(
         f"Optimal number of epochs determined: {best_epoch} (Loss: {best_val_loss:.6f})"
     )
+
+    # Track training health metrics
+    tracker = get_tracker()
+    tracker.add_metric(id="s4_best_val_loss", title="Best Validation Loss", value=round(best_val_loss, 6))
+    tracker.add_metric(id="s4_best_epoch", title="Best Epoch", value=best_epoch)
 
     print(f"Phase 2: Retraining on full dataset for {best_epoch} epochs...")
     full_dataset = TensorDataset(torch.tensor(X_data, dtype=torch.float32))

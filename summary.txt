@@ -1,0 +1,238 @@
+# Data Integrity Metrics Summary
+# All metrics tracked across the card_history ML pipeline
+# Generated: 2026-02-06
+
+================================================================================
+PIPELINE LEVEL (main.py)
+================================================================================
+
+Metrics:
+  - pipeline_start_time        Pipeline Started (timestamp string)
+  - pipeline_end_time           Pipeline Ended (timestamp string)
+  - pipeline_total_duration     Pipeline Total Duration in seconds
+
+Tables:
+  - step_summary                Pipeline Step Summary
+                                Columns: [Step, Status]
+                                Shows which steps were "Ran" vs "Skipped"
+
+================================================================================
+STEP 1: DATA DOWNLOAD (step_1.py)
+================================================================================
+
+Metrics:
+  - s1_total_records                Total Records Downloaded (eBay + PWCC combined)
+  - s1_ebay_records                 eBay Records Downloaded (after cutoff filtering)
+  - s1_pwcc_records                 PWCC Records Downloaded (after cutoff filtering)
+  - s1_sales_before_sep_2025        Count of sales with dates before 9/1/2025
+  - s1_dropped_sales_before_sep_2025  Total sales dropped due to pre-cutoff date
+  - s1_most_recent_ebay_date        Most recent eBay sale date (YYYY-MM-DD string)
+  - s1_most_recent_pwcc_date        Most recent PWCC sale date (YYYY-MM-DD string)
+  - s1_days_since_last_sale         Days between now and the most recent sale across both sources
+  - s1_extreme_prices_count         Count of prices < $0.01 or > $100,000
+  - s1_duration                     Step 1 Duration in seconds
+
+Tables:
+  - s1_anomalies                    Data Anomalies
+                                    Columns: [Type, Count]
+                                    Tracks zero-bid and single-bid eBay auctions
+
+  - s1_ebay_missing                 eBay Missing Data
+                                    Columns: [Field, Count, Pct]
+                                    Tracks missing gemrate_id, grade, and price fields
+
+  - s1_pwcc_missing                 PWCC Missing Data
+                                    Columns: [Field, Count, Pct]
+                                    Tracks missing gemrate_id, grade, and price fields
+
+  - s1_marketplace_breakdown        Marketplace Breakdown
+                                    Columns: [Source, Records, Share]
+                                    Shows eBay vs PWCC record counts and percentages
+
+Charts:
+  - s1_ebay_grades                  eBay Grade Distribution (bar chart)
+                                    Top 10 grade values and their counts
+
+  - s1_pwcc_grades                  PWCC Grade Distribution (bar chart)
+                                    Top 10 grade values and their counts
+
+Errors (conditional):
+  - "MONGO_URL environment variable is not set" — if MongoDB connection string missing
+
+================================================================================
+STEP 2: TEXT EMBEDDING (step_2.py)
+================================================================================
+
+Metrics:
+  - s2_input_rows               Step 2 Input Rows (catalog rows after dedup/cleaning)
+  - s2_empty_text_count          Count of cards with empty embedding text after concatenation
+  - s2_avg_text_length           Average character length of embedding_text
+  - s2_cards_embedded            Cards Embedded (rows saved to output)
+  - s2_embedding_dim             Embedding Dimension (e.g., 1024 for BGE-M3)
+  - s2_duration                  Step 2 Duration in seconds
+
+Errors (conditional):
+  - s2_embedding_failed          Boolean True if model.encode() throws an exception
+  - Error message logged if embedding generation fails
+
+================================================================================
+STEP 3: FEATURE PREP (step_3.py)
+================================================================================
+
+Metrics:
+  - s3_total_cleaned                Total Filtered Records (after catalog ID filtering)
+  - s3_batch_loop_completed         Boolean — whether the batch processing loop completed
+  - s3_median_days_between_top_100_sales  Median days between sales for top 100 cards by volume
+  - s3_duration                     Step 3 Duration in seconds
+
+Charts:
+  - sales_per_day                   Sales Per Day (line chart)
+                                    Columns: [date, sales]
+                                    Last 28 days of daily sales counts
+
+  - dollar_volume_per_day           Dollar Volume Per Day (line chart)
+                                    Columns: [date, dollar_volume]
+                                    Sum of prices per day for last 28 days
+
+  - median_price_per_day            Median Sales Price Per Day (line chart)
+                                    Columns: [date, median_price]
+                                    Median sale price per day for last 28 days
+
+  - sales_price_histogram           Sales Price Distribution for most recent day (bar chart)
+                                    Columns: [price_range, count]
+                                    Bins: $0-1, $1-10, $10-100, $100-1K, $1K-10K, $10K+
+
+  - sales_grade_histogram           Sales Grade Distribution for most recent day (bar chart)
+                                    Columns: [grade, count]
+                                    Count of sales per grade level
+
+  - first_time_sales_per_day        First-Time Sales Per Day — No Previous Sales (line chart)
+                                    Columns: [date, first_time_sales]
+                                    Cards sold for the first time (no prev_1_days_ago)
+
+Tables:
+  - sales_concentration_per_day     Sales Concentration Per Day
+                                    Columns: [date, total_sales, unique_cards]
+                                    Daily total sales vs unique card count
+
+  - sales_comparison                Sales Comparison: Today vs 7d vs 28d Ago
+                                    Columns: [period, date, volume, dollar_total]
+                                    Side-by-side comparison of sales activity
+
+================================================================================
+STEP 4: PRICE EMBEDDING (step_4.py)
+================================================================================
+
+Metrics:
+  - s4_input_file_size_mb       Step 4 Input File Size in MB
+  - s4_input_rows               Step 4 Input Rows (historical sales after dropping NaN prices)
+  - s4_ids_before_drop          Card IDs Before Drop (unique gemrate_ids before NaN column drop)
+  - s4_ids_after_drop           Card IDs After Drop (unique gemrate_ids remaining in price matrix)
+  - s4_best_val_loss            Best Validation Loss from LSTM autoencoder Phase 1
+  - s4_best_epoch               Best Epoch (epoch where best val loss was found)
+  - s4_cards_with_price_vectors Cards with Price Vectors (saved to output)
+  - s4_duration                 Step 4 Duration in seconds
+
+Errors (conditional):
+  - "Input file not found: {path}" — if historical data parquet doesn't exist
+  - "Historical data file is empty after dropping NaN prices." — if no valid rows
+  - Warning if fewer than 1,000 rows (results may be unreliable)
+
+================================================================================
+STEP 5: NEIGHBOR SEARCH (step_5.py)
+================================================================================
+
+Metrics:
+  - s5_total_catalog_cards      Total Catalog Cards in query set
+  - s5_cards_with_neighbors     Cards with Neighbors (unique query IDs that got results)
+  - s5_catalog_coverage_pct     Catalog Coverage percentage (cards_with_neighbors / total_catalog)
+  - s5_total_neighbor_pairs     Total Neighbor Pairs saved to output
+  - s5_db_size                  Database Size — cards with both text and price embeddings
+  - s5_duration                 Step 5 Duration in seconds
+
+================================================================================
+STEP 6: NEIGHBOR FEATURES (step_6.py)
+================================================================================
+
+Metrics:
+  - s6_historical_rows_output   Historical Rows with Neighbors (rows written to historical_data_with_neighbors.parquet)
+  - s6_today_rows_output        Today Rows with Neighbors (rows written to today_data_with_neighbors.parquet)
+  - s6_duration                 Step 6 Duration in seconds
+
+================================================================================
+STEP 7: MODEL TRAINING (step_7.py)
+================================================================================
+
+Metrics:
+  - s7_validation_mdape         Validation MdAPE — Median Absolute Percentage Error on time-based val split
+  - s7_validation_mape          Validation MAPE — Mean Absolute Percentage Error on time-based val split
+  - s7_duration                 Step 7 Duration in seconds
+
+Notes:
+  - Trains 3 XGBoost models in parallel: Gamma (main prediction), Lower bound, Upper bound
+  - Validation uses 80/20 time-based split (most recent 20% for validation)
+  - Hyperparameters loaded from model/results/worker_*_best.json files
+
+================================================================================
+STEP 8: INFERENCE (step_8.py)
+================================================================================
+
+Metrics:
+  - s8_predictions_generated        Total predictions generated
+  - s8_prediction_min               Minimum prediction value (gamma model)
+  - s8_prediction_max               Maximum prediction value (gamma model)
+  - s8_prediction_mean              Mean prediction value (gamma model)
+  - s8_prediction_median            Median prediction value (gamma model)
+  - s8_prediction_std               Standard deviation of predictions (gamma model)
+  - s8_negative_predictions_count   Count of negative predictions (should be 0)
+  - s8_prediction_lower_min         Minimum lower bound prediction
+  - s8_prediction_lower_max         Maximum lower bound prediction
+  - s8_prediction_upper_min         Minimum upper bound prediction
+  - s8_prediction_upper_max         Maximum upper bound prediction
+  - s8_duration                     Step 8 Duration in seconds
+
+Errors (conditional):
+  - Model collapse detection: logged if all predictions equal the same value
+  - Warning printed if any negative predictions detected
+
+================================================================================
+STEP 9: QA & RE-SORTING (step_9.py)
+================================================================================
+
+Metrics:
+  - s9_total_groups                     Total Grade/Company Groups
+  - s9_monotonicity_violations_prediction  Monotonicity violations in prediction column (before fix)
+  - s9_post_sort_violations             Post-sort violations — should always be 0 after fixing
+  - s9_qa_outliers                      QA Outliers — count where prediction/recent_price ratio > 1.2 or < 0.8
+  - s9_qa_outlier_pct                   QA Outlier Percentage (within last 30 days)
+  - s9_duration                         Step 9 Duration in seconds
+
+Notes:
+  - Enforces monotonicity: predictions must increase with grade within each card/company group
+  - Lower/upper bounds are swapped if lower > upper
+  - Spot check compares predictions to most recent historical sale prices
+
+================================================================================
+STEP 10: UPLOAD TO MONGODB (step_10.py)
+================================================================================
+
+Metrics:
+  - s10_documents_uploaded      Documents Uploaded to MongoDB predictions collection
+  - s10_duration                Step 10 Duration in seconds
+
+Notes:
+  - MongoDB upload logic is currently commented out (dry-run mode)
+  - uploaded count will be 0 until upload code is re-enabled
+
+================================================================================
+TOTAL METRICS COUNT
+================================================================================
+
+  Metrics:    54  (scalar values: counts, percentages, durations, timestamps)
+  Tables:      7  (structured row/column data)
+  Charts:      8  (line charts, bar charts)
+  Errors:      5  (conditional error tracking points)
+
+All metrics are collected by the DataIntegrityTracker singleton and saved to
+the 'data_integrity' MongoDB collection at the end of the pipeline run
+(controlled by the UPDATE_TRACKER constant).
