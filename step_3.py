@@ -21,7 +21,7 @@ def s3_clean_grade(val):
         return np.nan
 
     if "10b" in s or "10black" in s:
-        return 11.0
+        return 10.5
 
     if any(x in s for x in ["pristine", "perfect", "10p", "gem", "mint"]):
         return 10.5
@@ -62,10 +62,12 @@ def s3_calculate_seller_popularity(df):
     return df
 
 
-def s3_create_previous_sale_features(df, n_sales_back):
+def s3_create_previous_sale_features(df, n_sales_back, log_transform=False):
     index_series = None
     idx_df = pd.read_csv(constants.S1_INDEX_FILE)
     idx_df["date"] = pd.to_datetime(idx_df["date"])
+    if log_transform:
+        idx_df["index_value"] = np.log(idx_df["index_value"].clip(lower=0.01))
     idx_df = idx_df.groupby("date")["index_value"].mean()
     index_series = idx_df
     df = df.sort_values(["gemrate_id", "grade", "date"]).reset_index(drop=True)
@@ -152,7 +154,6 @@ def s3_create_lookback_features(df, weeks_back_list):
                 how="left",
             ).drop(columns=["join_week"])
         else:
-
             suffix = f"_{w}w_ago"
 
             daily_agg = (
@@ -192,6 +193,57 @@ def s3_create_lookback_features(df, weeks_back_list):
             )
 
     return result_df, new_columns
+
+
+def s3_compute_last_known_price(df):
+    """
+    Compute the last known price for each card at the equivalent grade.
+
+    This is used for bin-based model selection during inference.
+    The effective grade accounts for grading company differences:
+    - PSA grades are used as-is
+    - BGS/CGC grades are shifted down by 0.5 to align with PSA scale
+
+    For example:
+    - PSA 10 -> effective 10.0
+    - BGS 10 -> effective 9.5 (equivalent to PSA 9.5)
+    - CGC 10.5 (Pristine) -> effective 10.0
+
+    Args:
+        df: DataFrame with columns: gemrate_id, date, price, grade, half_grade,
+            grade_co_BGS, grade_co_CGC, grade_co_PSA
+
+    Returns:
+        DataFrame with added 'last_known_price' column
+    """
+    df = df.copy()
+
+    # Compute effective grade for each row using vectorized operations
+    # Base grade = grade + half_grade * 0.5
+    base_grade = df["grade"] + df["half_grade"] * 0.5
+
+    # BGS/CGC adjustment: subtract 0.5 if BGS or CGC
+    is_bgs = df.get("grade_co_BGS", pd.Series(0, index=df.index)) == 1
+    is_cgc = df.get("grade_co_CGC", pd.Series(0, index=df.index)) == 1
+    adjustment = (is_bgs | is_cgc).astype(float) * 0.5
+
+    df["_effective_grade"] = base_grade - adjustment
+
+    # Sort by gemrate_id, effective_grade, and date
+    df = df.sort_values(["gemrate_id", "_effective_grade", "date"]).reset_index(
+        drop=True
+    )
+
+    # For each row, get the previous price at the same gemrate_id and effective_grade
+    # This will be NaN for the first sale of each card/grade combo
+    df["last_known_price"] = df.groupby(["gemrate_id", "_effective_grade"])[
+        "price"
+    ].shift(1)
+
+    # Drop the temporary column
+    df = df.drop(columns=["_effective_grade"])
+
+    return df
 
 
 def s3_create_adjacent_grade_features(df, n_sales_back):
@@ -272,7 +324,7 @@ def s3_create_adjacent_grade_features(df, n_sales_back):
     return df, new_columns
 
 
-def s3_prepare_index_data(filepath):
+def s3_prepare_index_data(filepath, log_transform=False):
     if not os.path.exists(filepath):
         print(f"Warning: {filepath} not found. Skipping index data.")
         return None
@@ -281,6 +333,9 @@ def s3_prepare_index_data(filepath):
     idx_df = pd.read_csv(filepath)
     idx_df["date"] = pd.to_datetime(idx_df["date"])
     idx_df = idx_df.sort_values("date")
+
+    if log_transform:
+        idx_df["index_value"] = np.log(idx_df["index_value"].clip(lower=0.01))
 
     idx_df["index_change_1d"] = idx_df["index_value"].diff()
     idx_df["index_change_1w"] = idx_df["index_value"].diff(7)
@@ -361,7 +416,7 @@ def s3_load_and_clean_pwcc(filepath):
     return df
 
 
-def s3_load_today():
+def s3_load_today(today_date):
     catalog = pd.read_parquet(constants.S2_OUTPUT_EMBEDDINGS_FILE)
     df = pd.DataFrame()
     df["gemrate_id"] = catalog["gemrate_id"]
@@ -384,16 +439,135 @@ def s3_load_today():
                     df["seller_popularity"] = 0.3
                     all_today.append(df)
     df = pd.concat(all_today)
-    df["date"] = pd.to_datetime("today")
+    df["date"] = today_date
     df = df.reset_index(drop=True)
     return df
+
+
+def s3_process_features(
+    df, hist_output_file, today_output_file, log_transform=False, today_date=None
+):
+    """
+    Process features for the given dataframe and write to output files.
+
+    If log_transform=True, prices are log-transformed before feature creation,
+    so all derived price features will be in log terms.
+
+    today_date: The date to use as "today" for splitting historical vs today data.
+    """
+    import gc
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    df = df.copy()
+
+    # Apply log transformation to prices if requested
+    if log_transform:
+        print("  Applying log transformation to prices...")
+        df["price"] = np.log(df["price"].clip(lower=0.01))
+
+    unique_ids = df["gemrate_id"].unique()
+    batch_size = constants.S3_BATCH_SIZE
+
+    index_df = s3_prepare_index_data(
+        constants.S1_INDEX_FILE, log_transform=log_transform
+    )
+
+    n_batches = int(np.ceil(len(unique_ids) / batch_size))
+    print(f"Processing in {n_batches} batches of {batch_size} IDs...")
+
+    if today_date is None:
+        today_date = pd.to_datetime("today").normalize()
+    else:
+        today_date = pd.to_datetime(today_date).normalize()
+
+    hist_writer = None
+    today_writer = None
+
+    desc = "Processing Batches (log)" if log_transform else "Processing Batches"
+    for i in tqdm(range(0, len(unique_ids), batch_size), desc=desc):
+        batch_ids = unique_ids[i : i + batch_size]
+        batch_df = df[df["gemrate_id"].isin(batch_ids)].copy()
+
+        batch_df, _ = s3_create_previous_sale_features(
+            batch_df, constants.S3_N_SALES_BACK, log_transform=log_transform
+        )
+        batch_df, _ = s3_create_lookback_features(
+            batch_df, constants.S3_WEEKS_BACK_LIST
+        )
+        batch_df, _ = s3_create_adjacent_grade_features(
+            batch_df, constants.S3_N_SALES_BACK
+        )
+
+        # Compute last_known_price for bin-based model selection
+        # This uses cross-company grade equivalence (BGS/CGC shifted down by 0.5)
+        batch_df = s3_compute_last_known_price(batch_df)
+
+        if index_df is not None:
+            batch_df = batch_df.merge(index_df, on="date", how="left")
+
+        if "week_start" in batch_df.columns:
+            batch_df = batch_df.drop("week_start", axis=1)
+
+        batch_df["date"] = pd.to_datetime(batch_df["date"])
+
+        today_mask = (batch_df["date"].dt.normalize() == today_date) & (
+            batch_df["price"].isna()
+        )
+        df_today = batch_df[today_mask]
+        df_hist = batch_df[~today_mask]
+
+        # # For today's data, forward-fill last_known_price from historical data
+        # # If a card has historical sales, use the most recent price
+        # if not df_today.empty and not df_hist.empty:
+        #     # Get the last known price for each (gemrate_id, grade, half_grade) from historical
+        #     last_prices = (
+        #         df_hist.sort_values("date")
+        #         .groupby(["gemrate_id", "grade", "half_grade"])["price"]
+        #         .last()
+        #         .reset_index()
+        #         .rename(columns={"price": "_hist_last_price"})
+        #     )
+        #     df_today = df_today.merge(
+        #         last_prices,
+        #         on=["gemrate_id", "grade", "half_grade"],
+        #         how="left",
+        #     )
+        #     # Use historical price where last_known_price is NaN
+        #     df_today["last_known_price"] = df_today["last_known_price"].fillna(
+        #         df_today["_hist_last_price"]
+        #     )
+        #     df_today = df_today.drop(columns=["_hist_last_price"])
+
+        if not df_hist.empty:
+            table_hist = pa.Table.from_pandas(df_hist, preserve_index=False)
+            if hist_writer is None:
+                hist_writer = pq.ParquetWriter(hist_output_file, table_hist.schema)
+            hist_writer.write_table(table_hist)
+
+        if not df_today.empty:
+            table_today = pa.Table.from_pandas(df_today, preserve_index=False)
+            if today_writer is None:
+                today_writer = pq.ParquetWriter(today_output_file, table_today.schema)
+            today_writer.write_table(table_today)
+
+        del batch_df, df_hist, df_today
+        gc.collect()
+
+    if hist_writer:
+        hist_writer.close()
+    if today_writer:
+        today_writer.close()
+
+    print(f"Saved historical data to {hist_output_file}")
+    print(f"Saved today's data to {today_output_file}")
 
 
 def run_step_3():
     print("Starting Step 3: Feature Prep...")
     ebay_df = s3_load_and_clean_ebay(constants.S1_EBAY_MARKET_FILE)
     pwcc_df = s3_load_and_clean_pwcc(constants.S1_PWCC_MARKET_FILE)
-    today = s3_load_today()
 
     common_cols = [
         "gemrate_id",
@@ -411,6 +585,31 @@ def run_step_3():
     pwcc_subset.to_parquet("fanatics_cleaned.parquet")
     print("Merging eBay and PWCC data...")
     df = pd.concat([ebay_subset, pwcc_subset], ignore_index=True)
+
+    # Apply date clipping before any other processing
+    initial_count = len(df)
+    if constants.S3_START_DATE is not None:
+        start_date = pd.to_datetime(constants.S3_START_DATE)
+        df = df[df["date"] >= start_date]
+        print(
+            f"  → Clipped {initial_count - len(df)} rows before {constants.S3_START_DATE}"
+        )
+    if constants.S3_END_DATE is not None:
+        pre_clip_count = len(df)
+        end_date = pd.to_datetime(constants.S3_END_DATE)
+        df = df[df["date"] <= end_date]
+        print(
+            f"  → Clipped {pre_clip_count - len(df)} rows after {constants.S3_END_DATE}"
+        )
+
+    # Set "today" as the day after the most recent date in the clipped historical data
+    today_date = df["date"].max() + pd.Timedelta(days=1)
+    print(
+        f"  → Using '{today_date.strftime('%Y-%m-%d')}' as today (day after most recent historical data)"
+    )
+
+    today = s3_load_today(today_date)
+
     df = df.loc[df["grade"] >= constants.S3_LOWEST_GRADE]
     df = df.loc[df["grade"] <= constants.S3_HIGHEST_GRADE]
     df["price"] = df["price"].clip(lower=0.01)
@@ -449,75 +648,22 @@ def run_step_3():
         f"  → Filtered {initial_count - len(df)} rows not in catalog. Remaining: {len(df)}"
     )
 
-    unique_ids = df["gemrate_id"].unique()
-    batch_size = constants.S3_BATCH_SIZE
+    # First pass: normal prices
+    print("\n=== Processing with normal prices ===")
+    s3_process_features(
+        df,
+        constants.S3_HISTORICAL_DATA_FILE,
+        constants.S3_TODAY_DATA_FILE,
+        log_transform=False,
+        today_date=today_date,
+    )
 
-    index_df = s3_prepare_index_data(constants.S1_INDEX_FILE)
-
-    n_batches = int(np.ceil(len(unique_ids) / batch_size))
-    print(f"Processing in {n_batches} batches of {batch_size} IDs...")
-
-    today_date = pd.to_datetime("today").normalize()
-
-    hist_writer = None
-    today_writer = None
-
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    for i in tqdm(range(0, len(unique_ids), batch_size), desc="Processing Batches"):
-        batch_ids = unique_ids[i : i + batch_size]
-        batch_df = df[df["gemrate_id"].isin(batch_ids)].copy()
-
-        batch_df, _ = s3_create_previous_sale_features(
-            batch_df, constants.S3_N_SALES_BACK
-        )
-        batch_df, _ = s3_create_lookback_features(
-            batch_df, constants.S3_WEEKS_BACK_LIST
-        )
-        batch_df, _ = s3_create_adjacent_grade_features(
-            batch_df, constants.S3_N_SALES_BACK
-        )
-
-        if index_df is not None:
-            batch_df = batch_df.merge(index_df, on="date", how="left")
-
-        if "week_start" in batch_df.columns:
-            batch_df = batch_df.drop("week_start", axis=1)
-
-        batch_df["date"] = pd.to_datetime(batch_df["date"])
-
-        today_mask = (batch_df["date"].dt.normalize() == today_date) & (
-            batch_df["price"].isna()
-        )
-        df_today = batch_df[today_mask]
-        df_hist = batch_df[~today_mask]
-
-        if not df_hist.empty:
-            table_hist = pa.Table.from_pandas(df_hist, preserve_index=False)
-            if hist_writer is None:
-                hist_writer = pq.ParquetWriter(
-                    constants.S3_HISTORICAL_DATA_FILE, table_hist.schema
-                )
-            hist_writer.write_table(table_hist)
-
-        if not df_today.empty:
-            table_today = pa.Table.from_pandas(df_today, preserve_index=False)
-            if today_writer is None:
-                today_writer = pq.ParquetWriter(
-                    constants.S3_TODAY_DATA_FILE, table_today.schema
-                )
-            today_writer.write_table(table_today)
-
-        del batch_df, df_hist, df_today
-        import gc
-
-        gc.collect()
-
-    if hist_writer:
-        hist_writer.close()
-    if today_writer:
-        today_writer.close()
-
-    print(f"Saved historical data to {constants.S3_HISTORICAL_DATA_FILE}")
-    print(f"Saved today's data to {constants.S3_TODAY_DATA_FILE}")
+    # Second pass: log-transformed prices
+    print("\n=== Processing with log-transformed prices ===")
+    s3_process_features(
+        df,
+        constants.S3_HISTORICAL_DATA_LOG_FILE,
+        constants.S3_TODAY_DATA_LOG_FILE,
+        log_transform=True,
+        today_date=today_date,
+    )

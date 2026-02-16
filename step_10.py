@@ -27,35 +27,46 @@ def run_step_10():
 
     collection = db[collection_name]
 
-    print(f"Deleting all documents in '{collection_name}'...")
-    collection.delete_many({})
-
     batch_size = constants.S10_INSERTION_BATCH_SIZE
-    print(f"Upserting into MongoDB '{collection_name}' in batches of {batch_size}...")
-
     inserted_count = 0
 
-    for i in tqdm(range(0, len(df), batch_size), desc="Uploading Batches"):
-        batch = df.iloc[i : i + batch_size].copy()
-        records = batch.to_dict("records")
+    if constants.S10_UPSERT:
+        print(
+            f"Upserting into MongoDB '{collection_name}' in batches of {batch_size}..."
+        )
 
-        operations = []
-        for record in records:
-            filter_query = {
-                "gemrate_id": record["gemrate_id"],
-                "grading_company": record["grading_company"],
-                "grade": record["grade"],
-                "half_grade": record["half_grade"],
-            }
-            operations.append(ReplaceOne(filter_query, record, upsert=True))
+        for i in tqdm(range(0, len(df), batch_size), desc="Uploading Batches"):
+            batch = df.iloc[i : i + batch_size].copy()
+            records = batch.to_dict("records")
 
-        if operations:
-            collection.bulk_write(operations)
-            inserted_count += len(operations)
+            operations = []
+            for record in records:
+                filter_query = {
+                    "gemrate_id": record["gemrate_id"],
+                    "grading_company": record["grading_company"],
+                    "grade": record["grade"],
+                    "half_grade": record["half_grade"],
+                }
+                operations.append(ReplaceOne(filter_query, record, upsert=True))
+
+            if operations:
+                collection.bulk_write(operations)
+                inserted_count += len(operations)
+    else:
+        print(
+            f"Dropping collection '{collection_name}' and recreating with new data..."
+        )
+        collection.drop()
+
+        for i in tqdm(range(0, len(df), batch_size), desc="Inserting Batches"):
+            batch = df.iloc[i : i + batch_size].copy()
+            records = batch.to_dict("records")
+            collection.insert_many(records)
+            inserted_count += len(records)
 
     print("Creating index on 'gemrate_id'...")
     collection.create_index("gemrate_id")
-    
+
     print(
         f"Step 10 Complete. Uploaded {inserted_count} documents to collection '{collection_name}'."
     )

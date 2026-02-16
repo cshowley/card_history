@@ -17,6 +17,7 @@ model/__pycache__
 *.npy
 *.pt
 *.json
+*.png
 
 # Ignore .expert files
 /.expert

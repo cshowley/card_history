@@ -1,10 +1,25 @@
+"""
+Step 9: Re-sort predictions to enforce monotonicity.
+
+This module processes predictions from Step 8, ensuring that predictions
+are monotonically increasing within each (gemrate_id, grading_company) group
+when sorted by grade.
+
+It also handles exponentiation of predictions from log-transformed models:
+- If the primary model uses log dataset, bin predictions are exponentiated
+- If the fallback model uses log dataset, fallback predictions are exponentiated
+"""
+
 import os
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+
 import constants
 
 
 def run_step_9():
+    """Re-sort predictions to enforce monotonicity across grades."""
     print("Starting Step 9: Re-sorting Predictions...")
 
     input_file = constants.S8_PREDICTIONS_FILE
@@ -13,119 +28,84 @@ def run_step_9():
     if not os.path.exists(input_file):
         raise FileNotFoundError(f"Input file not found: {input_file}")
 
+    # Get model dataset types from constants
+    primary_dataset = constants.S7_PRIMARY_MODEL_DATASET
+    fallback_dataset = constants.S7_FALLBACK_MODEL_DATASET
+    primary_is_log = primary_dataset == "log"
+    fallback_is_log = fallback_dataset == "log"
+
+    print(f"Primary model dataset: {primary_dataset} (log={primary_is_log})")
+    print(f"Fallback model dataset: {fallback_dataset} (log={fallback_is_log})")
+
     print(f"Reading {input_file}...")
     df = pd.read_parquet(input_file)
-
     print(f"Loaded {len(df)} rows.")
 
+    # Verify required columns exist
+    if "prediction" not in df.columns:
+        raise ValueError("Required column 'prediction' not found in data.")
+    if "prediction_model" not in df.columns:
+        raise ValueError("Required column 'prediction_model' not found in data.")
+
+    # Exponentiate predictions based on which model made them
+    # Only exponentiate if the model that made the prediction used log dataset
+    if primary_is_log:
+        # Bin models use log dataset - exponentiate their predictions
+        bin_mask = df["prediction_model"].str.startswith("bin_")
+        bin_count = bin_mask.sum()
+        print(
+            f"Exponentiating {bin_count:,} predictions from bin models (log-transformed)..."
+        )
+        df.loc[bin_mask, "prediction"] = np.exp(df.loc[bin_mask, "prediction"])
+
+    if fallback_is_log:
+        # Fallback model uses log dataset - exponentiate its predictions
+        fallback_mask = df["prediction_model"] == "fallback"
+        fallback_count = fallback_mask.sum()
+        print(
+            f"Exponentiating {fallback_count:,} predictions from fallback model (log-transformed)..."
+        )
+        df.loc[fallback_mask, "prediction"] = np.exp(
+            df.loc[fallback_mask, "prediction"]
+        )
+
+    # Sort dataframe by group columns and grade
     sort_cols = ["gemrate_id", "grading_company", "grade", "half_grade"]
     print(f"Sorting dataframe by {sort_cols}...")
     df = df.sort_values(by=sort_cols, ascending=True).reset_index(drop=True)
 
+    # Group by gemrate_id and grading_company
     group_cols = ["gemrate_id", "grading_company"]
-    target_cols = ["prediction_lower", "prediction_upper", "prediction"]
+    total_groups = df.groupby(group_cols).ngroups
 
-    target_cols = [c for c in target_cols if c in df.columns]
-    total_groups = len(df.groupby(group_cols))
-    for col in target_cols:
-        print(f"  Processing {col}...")
+    # Enforce monotonicity: sort predictions within each group
+    print("Processing predictions column for monotonicity...")
 
-        violation_counts = (
-            df.groupby(group_cols)[col]
-            .apply(lambda x: np.any(x.values[:-1] > x.values[1:]))
-            .sum()
-        )
-        print(
-            f"    Found {violation_counts} / {total_groups} groups violating monotonicity."
-        )
+    # Count groups that violate monotonicity before sorting
+    violation_counts = (
+        df.groupby(group_cols)["prediction"]
+        .apply(lambda x: np.any(x.values[:-1] > x.values[1:]))
+        .sum()
+    )
+    print(f"  Found {violation_counts} / {total_groups} groups violating monotonicity.")
 
-        df[col] = df.groupby(group_cols)[col].transform(lambda x: np.sort(x.values))
-    
-    lower = np.minimum(df["prediction_lower"], df["prediction_upper"])
-    upper = np.maximum(df["prediction_lower"], df["prediction_upper"])
-    df["prediction_lower"] = lower
-    df["prediction_upper"] = upper
-    df["prediction"] = (df["prediction_lower"] + df["prediction_upper"]) / 2
+    # Sort values within each group to enforce monotonicity
+    df["prediction"] = df.groupby(group_cols)["prediction"].transform(
+        lambda x: np.sort(x.values)
+    )
 
     print(f"Saving sorted predictions to {output_file}...")
-
     df.to_parquet(output_file)
 
-    print("Running QA Spot Check...")
+    # Print summary statistics
+    print(f"\nDone. Saved {len(df)} rows.")
+    print(f"Output columns: {list(df.columns)}")
 
-    hist_file = constants.S3_HISTORICAL_DATA_FILE
-
-    print(f"Loading historical data from {hist_file}...")
-    hist_df = pd.read_parquet(hist_file)
-
-    hist_df["date"] = pd.to_datetime(hist_df["date"])
-    hist_df = hist_df.sort_values("date", ascending=False)
-
-    def get_grading_company(row):
-        for col in hist_df.columns:
-            if col.startswith("grade_co_") and row[col] == 1:
-                return col.replace("grade_co_", "")
-        return "Unknown"
-
-    dummy_cols = [c for c in hist_df.columns if c.startswith("grade_co_")]
-    if dummy_cols:
-        hist_df["grading_company"] = (
-            hist_df[dummy_cols].idxmax(axis=1).str.replace("grade_co_", "")
-        )
-
-    recent_sales = (
-        hist_df.sort_values("date", ascending=False)
-        .groupby(["gemrate_id", "grade", "half_grade"])
-        .head(1)
-        .copy()
-    )
-
-    cols_to_keep = [
-        "gemrate_id",
-        "grade",
-        "half_grade",
-        "grading_company",
-        "price",
-        "date",
-    ]
-    recent_sales = recent_sales[[c for c in cols_to_keep if c in recent_sales.columns]]
-    recent_sales = recent_sales.rename(
-        columns={"price": "recent_price", "date": "recent_date"}
-    )
-
-    merged = pd.merge(
-        recent_sales,
-        df,
-        on=["gemrate_id", "grade", "half_grade", "grading_company"],
-        how="inner",
-    )
-
-    merged["ratio"] = merged["prediction"] / merged["recent_price"]
-
-    today = pd.to_datetime("today").normalize()
-    merged["days_ago"] = (today - merged["recent_date"]).dt.days
-
-    spot_cols = [
-        "gemrate_id",
-        "grade",
-        "half_grade",
-        "grading_company",
-        "ratio",
-        "days_ago",
-        "prediction",
-        "recent_price",
-    ]
-    spot_df = merged[spot_cols].rename(columns={"prediction": "predicted_price"})
-
-    spot_file = "spot_check.parquet"
-    print(f"Writing {len(spot_df)} spot check rows to {spot_file}...")
-    spot_df.to_parquet(spot_file)
-    spot_df = spot_df.loc[spot_df["days_ago"] <= 30]
-    outliers = spot_df[(spot_df["ratio"] > 1.2) | (spot_df["ratio"] < 0.8)]
-    count = len(outliers)
-    print(f"Found {count} outliers (prediction / recent_price > 1.2 or < 0.8)")
-
-    print("Done.")
+    # Print prediction model distribution
+    print("\nPrediction model distribution:")
+    model_counts = df["prediction_model"].value_counts()
+    for model_name, count in model_counts.items():
+        print(f"  {model_name}: {count:,} ({100 * count / len(df):.1f}%)")
 
 
 if __name__ == "__main__":

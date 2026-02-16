@@ -29,7 +29,7 @@ def find_best_grid(results_dir):
     print(f"Scanning {results_dir} for results...")
     result_files = glob.glob(os.path.join(results_dir, "worker_*_best.json"))
 
-    global_best_mape = float("inf")
+    global_best_score = float("inf")
     global_best_params = {}
 
     if not result_files:
@@ -40,15 +40,16 @@ def find_best_grid(results_dir):
         try:
             with open(f, "r") as fp:
                 data = json.load(fp)
-                mape = data.get("best_mape", float("inf"))
-                print(f"File {f}: MAPE = {mape:.5f}")
-                if mape < global_best_mape:
-                    global_best_mape = mape
+                score = data.get("best_score", float("inf"))
+                metric_name = data.get("metric_name", "unknown")
+                print(f"File {f}: {metric_name} = {score:.6f}")
+                if score < global_best_score:
+                    global_best_score = score
                     global_best_params = data.get("best_params", {})
         except Exception as e:
             print(f"Error reading {f}: {e}")
 
-    print(f"Global Best MAPE: {global_best_mape:.5f}")
+    print(f"Global Best Score: {global_best_score:.6f}")
     print(f"Global Best Params: {global_best_params}")
     return global_best_params
 

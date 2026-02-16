@@ -1,7 +1,12 @@
+"""
+Model setup and hyperparameter search orchestration.
+
+This module handles data preparation and launches hyperparameter search workers
+for each enabled model defined in model_config.json.
+"""
+
 import json
-import math
 import os
-import random
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -9,32 +14,37 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-FEATURES_PREPPED_FILE = "historical_data_with_neighbors.parquet"
-TRAIN_TEST_SPLIT = 0.8
-VAL_TEST_SPLIT = 0.5
+from config_loader import (
+    load_model_config,
+    get_enabled_models,
+    get_training_config,
+    get_data_config,
+    get_dataset_files,
+    get_random_params,
+    get_results_dir,
+)
+
 START_DATE = datetime(2025, 9, 8) + timedelta(days=28)
-BAD_FEATURES = []
-N_WORKERS = 2
-N_TRIALS = 8000
-
-PARAM_RANGES = {
-    "max_depth": (19, 25),
-    "learning_rate": (0.01, 0.2),
-    "n_estimators": 2000,
-    "min_child_weight": (1, 7),
-    "subsample": (0.6, 0.95),
-    "colsample_bytree": (0.6, 0.95),
-    "gamma": (0.0, 5.0),
-    "reg_alpha": (0.0, 10.0),
-    "reg_lambda": (1.0, 10.0),
-}
 
 
-def load_and_prep_data(df, feature_cols):
-    train_df = df.iloc[: int(len(df) * TRAIN_TEST_SPLIT)]
-    test_df = df.iloc[int(len(df) * TRAIN_TEST_SPLIT) :]
-    val_df = test_df.iloc[: int(len(test_df) * VAL_TEST_SPLIT)]
-    test_df = test_df.iloc[int(len(test_df) * VAL_TEST_SPLIT) :]
+def load_and_prep_data(df, feature_cols, config, dataset_type="normal"):
+    """
+    Split data into train/val/test sets and save to disk.
+
+    Args:
+        df: Input DataFrame with features and target.
+        feature_cols: List of feature column names.
+        config: Model configuration dictionary.
+        dataset_type: The dataset type ("normal" or "log").
+    """
+    training_config = get_training_config(config)
+    train_test_split = training_config["train_test_split"]
+    val_test_split = training_config["val_test_split"]
+
+    train_df = df.iloc[: int(len(df) * train_test_split)]
+    test_df = df.iloc[int(len(df) * train_test_split) :]
+    val_df = test_df.iloc[: int(len(test_df) * val_test_split)]
+    test_df = test_df.iloc[int(len(test_df) * val_test_split) :]
 
     X_train = train_df[feature_cols]
     y_train = train_df["price"]
@@ -49,10 +59,10 @@ def load_and_prep_data(df, feature_cols):
     print(f"Validation set: {X_val.shape[0]} samples")
     print(f"Test set: {X_test.shape[0]} samples")
 
-    data_dir = "model/data"
+    data_dir = f"model/data/{dataset_type}"
     os.makedirs(data_dir, exist_ok=True)
 
-    print("Saving datasets...")
+    print(f"Saving datasets to {data_dir}...")
     X_train.to_parquet(f"{data_dir}/X_train.parquet")
     y_train.to_pickle(f"{data_dir}/y_train.pkl")
     X_val.to_parquet(f"{data_dir}/X_val.parquet")
@@ -64,55 +74,49 @@ def load_and_prep_data(df, feature_cols):
         json.dump(feature_cols, f)
 
 
-def get_random_params():
-    params = {}
+def run_hyperparameter_search_for_model(model_config, config):
+    """
+    Run hyperparameter search for a single model.
 
-    params["max_depth"] = random.randint(*PARAM_RANGES["max_depth"])
-    params["n_estimators"] = PARAM_RANGES["n_estimators"]
-    params["min_child_weight"] = random.randint(*PARAM_RANGES["min_child_weight"])
+    Args:
+        model_config: Configuration for the specific model.
+        config: Full model configuration dictionary.
+    """
+    model_name = model_config["name"]
+    dataset_type = model_config.get("dataset", "normal")
+    training_config = get_training_config(config)
+    n_workers = training_config["n_workers"]
+    n_trials = training_config["n_trials"]
 
-    params["subsample"] = random.uniform(*PARAM_RANGES["subsample"])
-    params["colsample_bytree"] = random.uniform(*PARAM_RANGES["colsample_bytree"])
+    print(f"\n{'=' * 60}")
+    print(f"Starting hyperparameter search for model: {model_name}")
+    print(f"Dataset: {dataset_type}")
+    print(f"Objective: {model_config['objective']}")
+    print(f"{'=' * 60}")
 
-    lr_min, lr_max = PARAM_RANGES["learning_rate"]
-    params["learning_rate"] = math.exp(
-        random.uniform(math.log(lr_min), math.log(lr_max))
-    )
+    print(f"Generating {n_trials} random parameter combinations...")
+    random_search_grid = [get_random_params(config) for _ in range(n_trials)]
 
-    def log_uniform(min_val, max_val):
-        min_val = max(min_val, 1e-9)
-        return math.exp(random.uniform(math.log(min_val), math.log(max_val)))
-
-    params["gamma"] = log_uniform(*PARAM_RANGES["gamma"])
-    params["reg_alpha"] = log_uniform(*PARAM_RANGES["reg_alpha"])
-    params["reg_lambda"] = log_uniform(*PARAM_RANGES["reg_lambda"])
-    return params
-
-
-def split_grid_and_run_workers(feature_cols):
-    print(f"Generating {N_TRIALS} random parameter combinations...")
-
-    random_search_grid = [get_random_params() for _ in range(N_TRIALS)]
-
-    # for params in random_search_grid:
-    #     params["monotone_constraints"] = {"grade": 1, "half_grade": 1}
-
-    chunk_size = int(np.ceil(N_TRIALS / N_WORKERS))
+    chunk_size = int(np.ceil(n_trials / n_workers))
     chunks = [
-        random_search_grid[i : i + chunk_size] for i in range(0, N_TRIALS, chunk_size)
+        random_search_grid[i : i + chunk_size] for i in range(0, n_trials, chunk_size)
     ]
 
     config_dir = "model/configs"
     os.makedirs(config_dir, exist_ok=True)
 
+    # Create results directory for this model
+    results_dir = get_results_dir(model_name)
+    os.makedirs(results_dir, exist_ok=True)
+
     processes = []
 
-    print("Launching workers...")
+    print(f"Launching {n_workers} workers for {model_name}...")
     for i, chunk in enumerate(chunks):
         if not chunk:
             continue
 
-        config_path = f"{config_dir}/grid_chunk_{i}.json"
+        config_path = f"{config_dir}/grid_chunk_{model_name}_{i}.json"
         with open(config_path, "w") as f:
             json.dump(chunk, f)
 
@@ -123,30 +127,94 @@ def split_grid_and_run_workers(feature_cols):
             str(i),
             "--config",
             config_path,
+            "--model_name",
+            model_name,
+            "--dataset",
+            dataset_type,
         ]
 
         p = subprocess.Popen(cmd)
         processes.append(p)
-        print(f"Started worker {i} with {len(chunk)} combinations.")
+        print(f"Started worker {i} for {model_name} with {len(chunk)} combinations.")
 
     for p in processes:
         p.wait()
 
-    print("All workers finished.")
+    print(f"All workers finished for model: {model_name}")
+
+
+def split_grid_and_run_workers(config):
+    """
+    Run hyperparameter search sequentially for all enabled models.
+
+    Args:
+        config: Full model configuration dictionary.
+    """
+    enabled_models = get_enabled_models(config)
+
+    if not enabled_models:
+        print("No models enabled in config. Nothing to do.")
+        return
+
+    print(
+        f"Found {len(enabled_models)} enabled models: {[m['name'] for m in enabled_models]}"
+    )
+
+    for model_config in enabled_models:
+        run_hyperparameter_search_for_model(model_config, config)
+
+    print("\n" + "=" * 60)
+    print("All hyperparameter searches completed.")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
-    print("Loading data...")
-    df = pd.read_parquet(FEATURES_PREPPED_FILE)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.sort_values(by="date")
-    df = df.loc[df["date"] >= START_DATE]
-    df = df.loc[df["grade"] > 6]
+    print("Loading configuration...")
+    config = load_model_config()
+    data_config = get_data_config(config)
+    enabled_models = get_enabled_models(config)
 
-    feature_cols = [
-        col
-        for col in df.columns
-        if col not in ["gemrate_id", "date", "price"] and col not in BAD_FEATURES
-    ]
-    load_and_prep_data(df, feature_cols)
-    split_grid_and_run_workers(feature_cols)
+    if not enabled_models:
+        print("No models enabled in config. Nothing to do.")
+        exit(0)
+
+    # Find unique dataset types used by enabled models
+    dataset_types = set(m.get("dataset", "normal") for m in enabled_models)
+    print(f"Dataset types needed: {dataset_types}")
+
+    bad_features = data_config["bad_features"]
+    exclude_cols = data_config["exclude_cols"]
+
+    # Prepare data for each dataset type
+    for dataset_type in dataset_types:
+        print(f"\n{'=' * 60}")
+        print(f"Preparing data for dataset: {dataset_type}")
+        print(f"{'=' * 60}")
+
+        # Get dataset files for this type (use any model with this dataset type)
+        sample_model = next(
+            m for m in enabled_models if m.get("dataset", "normal") == dataset_type
+        )
+        dataset_files = get_dataset_files(sample_model)
+
+        features_prepped_file = dataset_files["historical_file"].replace(
+            ".parquet", "_with_neighbors.parquet"
+        )
+
+        print(f"Loading data from {features_prepped_file}...")
+        df = pd.read_parquet(features_prepped_file)
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df = df.sort_values(by="date")
+        df = df.loc[df["date"] >= START_DATE]
+        df = df.loc[df["grade"] > data_config["min_grade"]]
+
+        feature_cols = [
+            col
+            for col in df.columns
+            if col not in exclude_cols and col not in bad_features
+        ]
+
+        load_and_prep_data(df, feature_cols, config, dataset_type)
+
+    # Run hyperparameter search for all models
+    split_grid_and_run_workers(config)

@@ -9,7 +9,7 @@ from tqdm import tqdm
 import constants
 
 
-def s6_load_index_series():
+def s6_load_index_series(log_transform=False):
     """Load index data and return a date -> index_value series."""
     if not os.path.exists(constants.S1_INDEX_FILE):
         print(
@@ -18,6 +18,8 @@ def s6_load_index_series():
         return None
     idx_df = pd.read_csv(constants.S1_INDEX_FILE)
     idx_df["date"] = pd.to_datetime(idx_df["date"])
+    if log_transform:
+        idx_df["index_value"] = np.log(idx_df["index_value"].clip(lower=0.01))
     idx_df = idx_df.groupby("date")["index_value"].mean()
     return idx_df
 
@@ -107,29 +109,17 @@ def s6_process_chunk(chunk_df, df_neighbors, neighbor_sales, index_series):
     return chunk_result
 
 
-def run_step_6():
-    print("Starting Step 6: Neighbor Features...")
+def s6_load_sales_lookup(historical_file):
+    """Load and prepare sales lookup data from a historical file."""
     sales_cols = ["gemrate_id", "grade", "date", "price"]
 
-    df_sales_lookup = pd.read_parquet(
-        constants.S3_HISTORICAL_DATA_FILE, columns=sales_cols
-    )
+    df_sales_lookup = pd.read_parquet(historical_file, columns=sales_cols)
     df_sales_lookup["date"] = pd.to_datetime(
         df_sales_lookup["date"], format="mixed", errors="coerce"
     )
     df_sales_lookup = df_sales_lookup.dropna(subset=["date"])
     df_sales_lookup = df_sales_lookup.reset_index(drop=True)
 
-    print("Loading neighbors...")
-    df_neighbors = pd.read_parquet(constants.S5_OUTPUT_NEIGHBORS_FILE)
-    df_neighbors = df_neighbors.rename(columns={"neighbors": "neighbor_id"})
-
-    df_neighbors["neighbor_rank"] = df_neighbors.groupby("gemrate_id").cumcount() + 1
-
-    print("Loading index data...")
-    index_series = s6_load_index_series()
-
-    print("Pre-preparing neighbor sales lookup...")
     df_sales_lookup = df_sales_lookup.rename(
         columns={
             "gemrate_id": "neighbor_id",
@@ -139,16 +129,70 @@ def run_step_6():
     )
     df_sales_lookup = df_sales_lookup.dropna()
     df_sales_lookup["neighbor_id"] = df_sales_lookup["neighbor_id"].astype(str)
+    return df_sales_lookup
 
-    for file in [constants.S3_HISTORICAL_DATA_FILE, constants.S3_TODAY_DATA_FILE]:
-        output_file = file.replace(".parquet", "_with_neighbors.parquet")
 
-        print(f"Processing {file}...")
+def run_step_6():
+    print("Starting Step 6: Neighbor Features...")
+
+    print("Loading neighbors...")
+    df_neighbors = pd.read_parquet(constants.S5_OUTPUT_NEIGHBORS_FILE)
+    df_neighbors = df_neighbors.rename(columns={"neighbors": "neighbor_id"})
+    df_neighbors["neighbor_rank"] = df_neighbors.groupby("gemrate_id").cumcount() + 1
+
+    files_to_process = [
+        (
+            constants.S3_HISTORICAL_DATA_FILE,
+            "historical_data_with_neighbors.parquet",
+            constants.S3_HISTORICAL_DATA_FILE,
+            False,
+        ),
+        (
+            constants.S3_TODAY_DATA_FILE,
+            "today_data_with_neighbors.parquet",
+            constants.S3_HISTORICAL_DATA_FILE,
+            False,
+        ),
+        (
+            constants.S3_HISTORICAL_DATA_LOG_FILE,
+            "historical_data_log_with_neighbors.parquet",
+            constants.S3_HISTORICAL_DATA_LOG_FILE,
+            True,
+        ),
+        (
+            constants.S3_TODAY_DATA_LOG_FILE,
+            "today_data_log_with_neighbors.parquet",
+            constants.S3_HISTORICAL_DATA_LOG_FILE,
+            True,
+        ),
+    ]
+
+    sales_lookup_cache = {}
+    index_series_cache = {}
+
+    for input_file, output_file, lookup_file, log_transform in files_to_process:
+        print(f"\nProcessing {input_file}...")
+
+        if not os.path.exists(input_file):
+            print(f"  Skipping: {input_file} not found")
+            continue
+
+        if lookup_file not in sales_lookup_cache:
+            print(f"  Loading sales lookup from {lookup_file}...")
+            sales_lookup_cache[lookup_file] = s6_load_sales_lookup(lookup_file)
+        df_sales_lookup = sales_lookup_cache[lookup_file]
+
+        if log_transform not in index_series_cache:
+            print(f"  Loading index data (log_transform={log_transform})...")
+            index_series_cache[log_transform] = s6_load_index_series(
+                log_transform=log_transform
+            )
+        index_series = index_series_cache[log_transform]
 
         try:
-            parquet_file = pq.ParquetFile(file)
+            parquet_file = pq.ParquetFile(input_file)
         except Exception as e:
-            print(f"Could not open {file}: {e}")
+            print(f"Could not open {input_file}: {e}")
             continue
 
         writer = None
@@ -157,7 +201,7 @@ def run_step_6():
 
         for batch in tqdm(
             parquet_file.iter_batches(batch_size=batch_size),
-            desc=f"Processing {os.path.basename(file)}",
+            desc=f"Processing {os.path.basename(input_file)}",
         ):
             chunk_df = batch.to_pandas()
 
@@ -192,9 +236,9 @@ def run_step_6():
         if writer:
             writer.close()
             print(
-                f"Adding neighbors to {file} complete. Saved {total_rows} rows to {output_file}."
+                f"Adding neighbors to {input_file} complete. Saved {total_rows} rows to {output_file}."
             )
         else:
-            print(f"No data processed for {file}")
+            print(f"No data processed for {input_file}")
 
-    print("Step 6 complete")
+    print("\nStep 6 complete")

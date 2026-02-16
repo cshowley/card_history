@@ -1,18 +1,43 @@
+"""
+Hyperparameter search worker.
+
+This module runs hyperparameter search for a single model type on a single GPU.
+It reads model configuration from model_config.json and uses custom loss functions
+when specified.
+"""
+
 import argparse
 import json
 import os
 import platform
+
 import cupy as cp
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import xgboost
-from sklearn.metrics import mean_squared_error
+
+from tqdm import tqdm
+
+from config_loader import (
+    load_model_config,
+    get_model_by_name,
+    get_training_config,
+    get_results_dir,
+)
 
 
 def weighted_loss(pred, dtrain, penalty_mult=10.0, penalize_overestimation=True):
     """
-    Custom loss function for XGBoost.
+    Custom loss function for XGBoost that asymmetrically penalizes errors.
+
+    Args:
+        pred: Predicted values.
+        dtrain: True values (DMatrix labels).
+        penalty_mult: Multiplier for penalized direction.
+        penalize_overestimation: If True, penalize overestimation; else underestimation.
+
+    Returns:
+        Tuple of (gradient, hessian) arrays.
     """
     y_true = dtrain
     y_pred = pred
@@ -33,32 +58,13 @@ def weighted_loss(pred, dtrain, penalty_mult=10.0, penalize_overestimation=True)
     return grad, hess
 
 
-def lower_bound_loss(y_true, y_pred):
-    return weighted_loss(
-        y_pred, y_true, penalty_mult=10.0, penalize_overestimation=True
-    )
-
-
-def upper_bound_loss(y_true, y_pred):
-    return weighted_loss(
-        y_pred, y_true, penalty_mult=10.0, penalize_overestimation=False
-    )
-
-
-def mdape(y_true, y_pred):
-    ape = np.abs((y_true - y_pred) / y_true)
-    return np.median(ape)
-
-
 def get_xgb_device(worker_id):
     """Determine best device for XGBoost."""
     try:
-        import cupy as cp
-
-        cp.cuda.Device(worker_id).use()
-        print("Using CUDA (NVIDIA GPU)")
+        cp.cuda.Device(int(worker_id)).use()
+        print(f"Using CUDA (NVIDIA GPU) device {worker_id}")
         return f"cuda:{worker_id}"
-    except:  # noqa: E722
+    except Exception:
         pass
 
     if platform.processor() == "arm" or "Apple" in platform.processor():
@@ -79,25 +85,54 @@ def load_data(data_dir):
     return X_train, y_train, X_val, y_val
 
 
-def run_search(worker_id, config_path):
+def run_search(worker_id, config_path, model_name, dataset_type="normal"):
+    """
+    Run hyperparameter search for a specific model.
+
+    Args:
+        worker_id: GPU/worker ID.
+        config_path: Path to the grid config JSON file.
+        model_name: Name of the model to search for.
+        dataset_type: The dataset type to use ("normal" or "log").
+    """
     with open(config_path, "r") as f:
         param_grid = json.load(f)
 
-    data_dir = "model/data"
+    # Load model configuration
+    full_config = load_model_config()
+    model_config = get_model_by_name(full_config, model_name)
+    training_config = get_training_config(full_config)
+
+    if model_config is None:
+        raise ValueError(f"Model '{model_name}' not found in configuration")
+
+    objective = model_config["objective"]
+    early_stopping_rounds = training_config.get("early_stopping_rounds", 10)
+
+    print(f"Model: {model_name}")
+    print(f"Dataset: {dataset_type}")
+    print(f"Objective: {objective}")
+
+    data_dir = f"model/data/{dataset_type}"
     device = get_xgb_device(worker_id)
 
     X_train, y_train, X_val, y_val = load_data(data_dir)
 
     if "cuda" in device:
-        X_train = cp.array(X_train)
-        y_train = cp.array(y_train)
-        X_val = cp.array(X_val)
-        y_val = cp.array(y_val)
+        X_train_gpu = cp.array(X_train)
+        y_train_gpu = cp.array(y_train)
+        X_val_gpu = cp.array(X_val)
+        y_val_gpu = cp.array(y_val)
+    else:
+        X_train_gpu = X_train
+        y_train_gpu = y_train
+        X_val_gpu = X_val
+        y_val_gpu = y_val
 
     best_score = float("inf")
     best_grid = {}
 
-    results_dir = "model/results"
+    results_dir = get_results_dir(model_name)
     os.makedirs(results_dir, exist_ok=True)
     result_file = os.path.join(results_dir, f"worker_{worker_id}_best.json")
 
@@ -109,50 +144,51 @@ def run_search(worker_id, config_path):
         enumerate(param_grid), total=len(param_grid), desc=f"Worker {worker_id}"
     ):
         try:
+            # Build model parameters
+            model_params = {
+                "device": device,
+                "n_jobs": -1,
+                **g,
+            }
+
+            model_params["objective"] = objective
+
             es = xgboost.callback.EarlyStopping(
-                rounds=10,
+                rounds=early_stopping_rounds,
                 min_delta=1e-3,
                 save_best=True,
                 maximize=False,
-                data_name="validation_0"
+                data_name="validation_0",
             )
-            model = xgboost.XGBRegressor(
-                device=device,
-                objective='reg:squarederror',
-                callbacks=[es],
-                n_jobs=-1
+
+            model = xgboost.XGBRegressor(callbacks=[es])
+            model.set_params(**model_params)
+            model.fit(
+                X_train_gpu,
+                y_train_gpu,
+                eval_set=[(X_val_gpu, y_val_gpu)],
+                verbose=False,
             )
-            model.set_params(**g)
-            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-            y_val_pred = model.predict(X_val)
-
-            def to_cpu_numpy(x):
-                if isinstance(x, (pd.DataFrame, pd.Series)):
-                    return x.to_numpy()
-                if hasattr(x, "get"):
-                    return x.get()
-                if hasattr(x, "to_numpy"):
-                    return x.to_numpy()
-                return np.array(x)
-
-            mse_result = mean_squared_error(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
-            mdape_result = mdape(cp.asnumpy(y_val), cp.asnumpy(y_val_pred))
+            # Extract native loss from XGBoost eval results
+            evals_result = model.evals_result()
+            val_metrics = evals_result["validation_0"]
+            metric_name = list(val_metrics.keys())[0]
             best_n_estimators = model.best_iteration + 1
-            best_grid["n_estimators"] = best_n_estimators
+            native_loss = val_metrics[metric_name][model.best_iteration]
 
-            if mse_result < best_score:
-                best_score = mse_result
-                best_grid = g
+            g["n_estimators"] = best_n_estimators
+
+            if native_loss < best_score:
+                best_score = native_loss
+                best_grid = g.copy()
                 print(
-                    f"\nWorker {worker_id}: New best MdAPE: {mdape_result:.2%} at iter {i}. n_estimators=#{best_n_estimators}"
-                )
-                print(
-                    f"\nWorker {worker_id}: New best MSE: {mse_result} at iter {i}"
+                    f"\nWorker {worker_id}: New best {metric_name}: {native_loss:.6f} at iter {i}. n_estimators={best_n_estimators}"
                 )
 
                 result_data = {
-                    "best_mse": mse_result,
-                    "best_mdape": mdape_result,
+                    "model_name": model_name,
+                    "best_score": native_loss,
+                    "metric_name": metric_name,
                     "best_params": best_grid,
                     "worker_id": worker_id,
                 }
@@ -163,16 +199,22 @@ def run_search(worker_id, config_path):
             print(f"\nWorker {worker_id}: Error with params {g}: {e}")
             continue
 
-    print(f"\nWorker {worker_id}: Finished. Best MGD: {best_score:.2%}")
+    print(f"\nWorker {worker_id}: Finished. Best score: {best_score:.6f}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gpu_id", type=str, required=True, help="Worker ID")
+    parser.add_argument("--gpu_id", type=str, required=True, help="Worker/GPU ID")
     parser.add_argument(
         "--config", type=str, required=True, help="Path to grid config json"
+    )
+    parser.add_argument(
+        "--model_name", type=str, required=True, help="Name of the model to train"
+    )
+    parser.add_argument(
+        "--dataset", type=str, default="normal", help="Dataset type (normal or log)"
     )
 
     args = parser.parse_args()
 
-    run_search(args.gpu_id, args.config)
+    run_search(args.gpu_id, args.config, args.model_name, args.dataset)

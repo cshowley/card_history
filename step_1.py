@@ -54,12 +54,13 @@ def run_step_1():
                 "item_data.seller_name": 1,
                 "_id": 1,
             }
-        },
+        }
     ]
     ebay_results = ebay_collection.aggregate(
         ebay_pipeline, maxTimeMS=constants.S1_MONGO_MAX_TIME_MS, allowDiskUse=True
     )
     ebay_df = pd.json_normalize(list(ebay_results))
+    print(ebay_df)
     print(f"  → eBay rows loaded: {len(ebay_df)}")
     ebay_df.to_csv(constants.S1_EBAY_MARKET_FILE, index=False)
 
